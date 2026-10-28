@@ -160,8 +160,11 @@ def parse_geo(res, digits_res=None):
 
 def parse_fuel(res, digits_res=None):
     lines = _lines(res)
-    text = "\n".join(lines)
     normalized = [re.sub(r"\s+", " ", line).strip() for line in lines]
+    normalized = [re.sub(r"(?i)\b(?:5ale|sa1e|sate)\b", "Sale", line) for line in normalized]
+    normalized = [re.sub(r"(?i)\b(?:v0lume|vo1ume|voIume)\b", "Volume", line) for line in normalized]
+    text = "\n".join(normalized)
+    labels = r"\b(?:date|time|rate|sale|amount|amt|total|value|volume|qty|quantity|litres?|ltrs?|fuel|bill|receipt|vehicle|preset)\b"
 
     def labeled_value(labels):
         label = re.compile(labels, re.I)
@@ -171,9 +174,13 @@ def parse_fuel(res, digits_res=None):
                 continue
             value_text = line[match.end():]
             number = re.search(r"(?:rs\.?|₹)?\s*([0-9][0-9,]*(?:\.[0-9]+)?)", value_text, re.I)
-            if not number and i + 1 < len(normalized) and not re.search(
-                    r"\b(?:date|time|rate|sale|volume|qty|fuel|bill|receipt|vehicle)\b", normalized[i + 1], re.I):
-                number = re.search(r"(?:rs\.?|₹)?\s*([0-9][0-9,]*(?:\.[0-9]+)?)", normalized[i + 1], re.I)
+            if not number:
+                for following in normalized[i + 1:i + 3]:
+                    if re.search(labels, following, re.I):
+                        break
+                    number = re.search(r"(?:rs\.?|₹)?\s*([0-9][0-9,]*(?:\.[0-9]+)?)", following, re.I)
+                    if number:
+                        break
             if number:
                 return _num(number.group(1).replace(",", ""))
         return None
@@ -182,7 +189,7 @@ def parse_fuel(res, digits_res=None):
     for labels in (
         r"\bbill\s*(?:no|number|#)\b",
         r"\b(?:receipt|voucher|invoice)\s*(?:no|number|#)\b",
-        r"\b(?:txn|transaction)\s*(?:id|no|number|#)\b",
+        r"\b(?:trns?|txn|transaction)\s*\.?\s*(?:id|no|number|#)\b",
     ):
         for line in normalized:
             match = re.search(labels + r"\s*[:#\-]?\s*([A-Z0-9][A-Z0-9/\-]{2,})", line, re.I)
@@ -191,6 +198,11 @@ def parse_fuel(res, digits_res=None):
                 break
         if receipt:
             break
+    if not receipt:
+        match = re.search(r"\b(?:trns?|txn|transaction)\s*\.?\s*(?:id|no|number)?\s*[:#\-]?\s*([A-Z0-9][A-Z0-9/\-]{2,})",
+                          text, re.I)
+        if match and any(char.isdigit() for char in match.group(1)):
+            receipt = match.group(1).rstrip("-/")
     if not receipt:
         match = re.search(r"\b(?:bill|receipt|voucher|invoice)\s*(?:no|number|#)?\s*[:#\-]?\s*([A-Z0-9][A-Z0-9/\-]{2,})",
                           text, re.I)
@@ -252,9 +264,24 @@ def extract(kind, image_bytes):
     except ImportError:
         return {"_error": "EasyOCR not installed. Run: py -m pip install -r requirements-ocr.txt"}
     try:
-        arr = _load(image_bytes)                 # smaller image = much faster on CPU
+        arr = _load(image_bytes, maxside=1800 if kind == "fuel" else 1000)
         res = r.readtext(arr, detail=1)
         print("ocr lines:", _lines(res))
+        if kind == "fuel":
+            out = PARSERS[kind](res)
+            if any(out[key] in (None, "") for key in ("receipt_no", "rate", "volume", "amount")):
+                from PIL import Image, ImageEnhance, ImageFilter
+                enhanced = ImageEnhance.Contrast(Image.fromarray(arr)).enhance(1.6).filter(ImageFilter.SHARPEN)
+                retry = r.readtext(__import__("numpy").array(enhanced), detail=1)
+                retry_out = PARSERS[kind](retry)
+                for key, value in retry_out.items():
+                    if out.get(key) in (None, "") and value not in (None, ""):
+                        out[key] = value
+                print("ocr fuel enhanced lines:", _lines(retry))
+            print("ocr", kind, "->", out)
+            if all(value in (None, "") for value in out.values()):
+                return {"_error": "OCR found no values. Text seen: " + " | ".join(_lines(res))[:200]}
+            return out
         digits = None
         if kind == "cluster" and find_km(res) is None:   # digits-only pass only when needed
             digits = r.readtext(arr, detail=1, allowlist="0123456789")

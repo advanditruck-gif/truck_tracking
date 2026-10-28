@@ -4,7 +4,7 @@ from datetime import datetime
 from config import DATE_FMT, ENGINE, MODEL, PROMPTS, SCHEMAS
 import ocr_extractor
 
-VERSION = "tool-v6"
+VERSION = "tool-v7"
 _client = None
 
 
