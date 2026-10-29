@@ -14,7 +14,7 @@ from extractor import extract
 
 app = Flask(__name__)
 
-if config.ENGINE == "easyocr":  # load the OCR models in the background so the first photo is not slow
+if config.ENGINE in ("easyocr", "auto", "ocr_first"):  # load the OCR models in the background so the first photo is not slow
     import threading, ocr_extractor
     threading.Thread(target=ocr_extractor.warmup, daemon=True).start()
 
@@ -27,9 +27,9 @@ def index():
 @app.get("/api/ping")
 def api_ping():
     """Open /api/ping in the browser to confirm which code is running."""
-    import extractor
     return jsonify({"extractor": getattr(extractor, "VERSION", "old"), "engine": config.ENGINE, "model": config.MODEL,
-                    "api_key_set": bool(os.getenv("ANTHROPIC_API_KEY")), "folder": os.path.dirname(os.path.abspath(__file__))})
+                    "api_key_set": bool(getattr(config, "GEMINI_API_KEY", "") or os.getenv("GEMINI_API_KEY")),
+                    "folder": os.path.dirname(os.path.abspath(__file__))})
 
 
 @app.get("/api/reverse-geocode")

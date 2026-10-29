@@ -1,6 +1,6 @@
 """Offline reading with EasyOCR + regex rules (no API key needed).
 Install:  py -m pip install -r requirements-ocr.txt      (downloads ~1-2 GB incl. PyTorch; models download on first run)
-Returns the same fields as the Claude reader: cluster {km,date,time}, geo {...}, fuel {...}.
+Returns the same fields as the Gemini reader: cluster {km,date,time}, geo {...}, fuel {...}.
 """
 import re
 

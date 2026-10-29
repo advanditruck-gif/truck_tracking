@@ -1,22 +1,38 @@
 import os
 
-MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-5-5")
+# Auto-load .env if available
+env_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+if os.path.exists(env_file):
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(env_file)
+    except ImportError:
+        with open(env_file, "r", encoding="utf-8") as _f:
+            for _line in _f:
+                _line = _line.strip()
+                if _line and not _line.startswith("#") and "=" in _line:
+                    _k, _v = _line.split("=", 1)
+                    _k, _v = _k.strip(), _v.strip().strip("'\"")
+                    if _k and _k not in os.environ:
+                        os.environ[_k] = _v
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
 DB_PATH = os.getenv("DB_PATH", "tracker.db")
 PORT = int(os.getenv("PORT", "5000"))
-# Reading engine: "easyocr" runs locally without a Claude API key; "auto" uses Claude first.
-ENGINE = os.getenv("EXTRACT_ENGINE", "easyocr").lower()
+# Reading engine: "auto" (runs EasyOCR first, then Gemini as fallback/completion) | "gemini" | "easyocr"
+ENGINE = os.getenv("EXTRACT_ENGINE", "auto").lower()
 # How dates/times are shown in the form (strftime). 12-hour time like "8:00 PM".
 DATE_FMT = os.getenv("DATE_FMT", "%d-%b-%Y")      # 20-Sep-2026  (use "%d-%b-%y" for 20-Sep-26)
 USE_HTTPS = bool(os.getenv("HTTPS"))  # phone camera needs HTTPS
 
 S, N = ["string", "null"], ["number", "null"]
 
-
 def f(t, d):
     return {"type": t, "description": d}
 
 
-# Fields Claude must fill for each image type (null only if truly unreadable).
+# Fields Gemini must fill for each image type (null only if truly unreadable).
 SCHEMAS = {
     "cluster": {
         "km": f(N, "Odometer reading beside the ODO label, digits only, no units."),
