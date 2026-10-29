@@ -8,10 +8,11 @@ import json, os, sqlite3
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, make_response, render_template, request, send_from_directory
 import config, db
 import extractor
 from extractor import extract
+import pwa_assets
 
 app = Flask(__name__)
 
@@ -24,6 +25,35 @@ if config.ENGINE == "easyocr" and getattr(config, "HAS_EASYOCR", False):
 @app.get("/")
 def index():
     return render_template("index.html")
+
+
+@app.get("/sw.js")
+def service_worker():
+    response = make_response(send_from_directory("static", "sw.js"))
+    response.headers["Content-Type"] = "application/javascript"
+    response.headers["Service-Worker-Allowed"] = "/"
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return response
+
+
+@app.get("/manifest.webmanifest")
+def manifest():
+    response = make_response(send_from_directory("static", "manifest.webmanifest"))
+    response.headers["Content-Type"] = "application/manifest+json"
+    response.headers["Cache-Control"] = "public, max-age=3600"
+    return response
+
+
+@app.get("/favicon.ico")
+def favicon():
+    pwa_assets.ensure_pwa_icons()
+    return send_from_directory(os.path.join("static", "icons"), "favicon.png", mimetype="image/png")
+
+
+@app.get("/static/icons/<path:filename>")
+def static_icons(filename):
+    pwa_assets.ensure_pwa_icons()
+    return send_from_directory(os.path.join("static", "icons"), filename)
 
 
 @app.get("/api/ping")

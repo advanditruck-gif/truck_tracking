@@ -1,5 +1,11 @@
 const K = 'trk1', $ = s => document.querySelector(s);
-let S; try { S = JSON.parse(localStorage.getItem(K)) } catch (e) { } S = S || { run: null, ev: [] };
+let S; try { S = JSON.parse(localStorage.getItem(K)) } catch (e) { } S = S || { run: null, ev: [] }; S.pending = S.pending || [];
+const showToast = (txt, ms = 3200) => {
+    const el = $('#pwa-toast'); if (!el) return;
+    el.textContent = txt; el.hidden = false;
+    clearTimeout(el._tm); el._tm = setTimeout(() => { el.hidden = true }, ms);
+};
+
 const keep = () => { try { localStorage.setItem(K, JSON.stringify(S)) } catch (e) { } };
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 let sample = null; (async () => { try { if (window.claude) sample = await claude.use('sample') } catch (e) { } })();
@@ -138,9 +144,41 @@ function reviewVisit(vals) {
         };
     })
 }
+async function sendEventPayload(p) {
+    const r = await fetch('/api/events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p) });
+    return r.ok;
+}
+async function syncPendingEvents() {
+    if (!navigator.onLine || !S.pending || !S.pending.length) return;
+    const queue = S.pending.slice(), remaining = [];
+    for (const item of queue) {
+        try {
+            const ok = await sendEventPayload(item);
+            if (!ok) remaining.push(item);
+        } catch (e) {
+            remaining.push(item);
+        }
+    }
+    const synced = S.pending.length - remaining.length;
+    S.pending = remaining; keep();
+    if (synced > 0) showToast('Synced ' + synced + ' offline event' + (synced > 1 ? 's' : '') + ' to server.');
+}
 function add(t, d, th) {
     const e = { t, at: new Date().toISOString(), d, th }; S.ev.push(e); keep();
-    if (!sample) fetch('/api/events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ run: S.run && S.run.id, t, at: e.at, d }) }).catch(() => { }); render()
+    const payload = { run: S.run && S.run.id, t, at: e.at, d };
+    if (!sample) {
+        if (!navigator.onLine) {
+            S.pending = S.pending || []; S.pending.push(payload); keep();
+            showToast('Saved offline. Will sync when reconnected.');
+        } else {
+            sendEventPayload(payload).then(ok => {
+                if (!ok) { S.pending = S.pending || []; S.pending.push(payload); keep() }
+            }).catch(() => {
+                S.pending = S.pending || []; S.pending.push(payload); keep();
+            });
+        }
+    }
+    render();
 }
 async function snap(kind, title, extra = {}) {
     const gp = kind === 'geo' ? gpsNow() : null; const b = await shoot(title); if (!b) return null; const gpsFinal = kind === 'geo' ? gpsNow(true).then(async f => { if (f.c) return f; const w = await gp; return w.c ? w : f }) : null; const capturedAt = new Date(), done = busy('Reading image…');
@@ -250,19 +288,125 @@ render();
 // ---- alert sound for the 30-minute location photo (uses static/alert.mp3)
 const ALERT_GAP_MS = 100; // 0.1 second pause between repeats
 const SND = new Audio('/static/alert.mp3'); SND.preload = 'auto'; SND.volume = 1;
-let unlocked = false, ringing = false;
-function unlockAudio() { // browsers only allow sound after one tap on the page
-    if (unlocked) return; unlocked = true;
-    SND.muted = true; SND.play().then(() => { SND.pause(); SND.currentTime = 0; SND.muted = false }).catch(() => { SND.muted = false; unlocked = false });
+let unlocked = false, ringing = false, forced = false; // forced = alarm started by a server push
+// stop pull-to-refresh: scrolling up at the top reloads the page and silences the alert
+(() => { const s = document.createElement('style'); s.textContent = 'html,body{overscroll-behavior-y:contain}'; document.head.appendChild(s) })();
+function audioAllowed() { return navigator.userActivation ? navigator.userActivation.hasBeenActive : unlocked }
+function unlockAudio() { // a real tap on the page is needed once; muted play does NOT prove the browser allowed sound
+    if (unlocked) return;
+    SND.muted = false; SND.volume = shouldRing() ? 1 : 0; // silent unlock when nothing is due
+    SND.play().then(() => {
+        unlocked = true; hideEnableBar();
+        if (shouldRing()) { ringing = true; SND.volume = 1 } else { SND.pause(); SND.currentTime = 0; SND.volume = 1 }
+    }).catch(() => { SND.volume = 1 });
 }
-['pointerdown', 'keydown', 'touchstart'].forEach(n => document.addEventListener(n, unlockAudio, { passive: true }));
+['pointerup', 'touchend', 'click', 'keydown'].forEach(n => window.addEventListener(n, unlockAudio, { passive: true, capture: true }));
+// "Enable sound" bar: shown whenever the browser is still blocking the sound, so one tap on it fixes everything
+function hideEnableBar() { const b = document.getElementById('soundEnableBar'); if (b) b.remove() }
+function showEnableBar() {
+    if (unlocked || document.getElementById('soundEnableBar') || !document.body) return;
+    const b = document.createElement('button'); b.id = 'soundEnableBar'; b.textContent = '🔊 Tap here to enable alert sound';
+    b.style.cssText = 'position:fixed;left:12px;right:12px;top:12px;z-index:99998;padding:14px;font-size:16px;font-weight:700;border:0;border-radius:12px;background:#e8ca78;color:#15120c';
+    b.onclick = () => { unlockAudio(); setTimeout(() => { if (!unlocked) { SND.play().then(() => { unlocked = true; hideEnableBar(); setTimeout(() => { if (!shouldRing()) { SND.pause(); SND.currentTime = 0 } }, 400) }).catch(() => { }) } }, 0) };
+    document.body.appendChild(b);
+}
+setTimeout(() => { if (!audioAllowed()) showEnableBar() }, 1500);
 function isDue() { const r = S.run; return !!(r && !r.end && r.due && Date.now() > r.due && !document.querySelector('.md')) }
+function shouldRing() { return forced || isDue() }
 function ring() {
-    if (!isDue()) { ringing = false; return }
+    if (!shouldRing()) { ringing = false; SND.pause(); return }
     ringing = true; SND.currentTime = 0;
     try { navigator.vibrate && navigator.vibrate([600, 200, 600]) } catch (e) { }
-    SND.play().catch(() => { ringing = false });
+    SND.play().catch(() => { ringing = false; showEnableBar() });
 }
 SND.addEventListener('ended', () => setTimeout(ring, ALERT_GAP_MS));
+// if the browser pauses the sound by itself (scroll, focus change) while it should be ringing, start it again
+SND.addEventListener('pause', () => { if (ringing && !SND.ended && shouldRing()) SND.play().catch(() => { }) });
+document.addEventListener('visibilitychange', () => { if (!document.hidden && !ringing && shouldRing()) ring() });
 // plays the sound again and again (0.1 s gap) from the moment 30 minutes are up until the next location photo is uploaded
-setInterval(() => { if (!ringing && isDue()) ring() }, 1000);
+setInterval(() => { if (!ringing && shouldRing()) ring() }, 1000);
+
+// STOP button for alarms started by a server push (the 30-minute alert stops itself when the photo is uploaded)
+function stopForced() { forced = false; ringing = false; SND.pause(); SND.currentTime = 0; const b = document.getElementById('alarmStopBar'); if (b) b.style.display = 'none' }
+function showStopBar() {
+    let b = document.getElementById('alarmStopBar');
+    if (!b) {
+        b = document.createElement('button'); b.id = 'alarmStopBar'; b.textContent = '🔔 STOP ALARM'; b.onclick = stopForced;
+        b.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:99999;padding:16px;font-size:18px;font-weight:700;border:0;border-radius:12px;background:#c62828;color:#fff';
+        document.body.appendChild(b);
+    }
+    b.style.display = 'block';
+}
+if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', e => {
+    if (e.data && e.data.type === 'ALARM') { forced = true; showStopBar(); if (!ringing) ring() }
+});
+
+// ---- PWA Lifecycle, Offline & Install Handlers
+function updateNetworkBadge() {
+    const chip = $('#offline-chip');
+    if (chip) chip.hidden = navigator.onLine;
+    if (navigator.onLine) syncPendingEvents();
+    else showToast('Offline mode active. Logs are saved locally.');
+}
+window.addEventListener('online', updateNetworkBadge);
+window.addEventListener('offline', updateNetworkBadge);
+updateNetworkBadge();
+
+// PWA Install prompt handling
+let deferredInstall = null;
+window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault();
+    deferredInstall = e;
+    const btn = $('#install-btn');
+    if (btn) {
+        btn.hidden = false;
+        btn.onclick = async () => {
+            if (!deferredInstall) return;
+            btn.hidden = true;
+            deferredInstall.prompt();
+            const res = await deferredInstall.userChoice;
+            if (res && res.outcome === 'accepted') showToast('Installing Ad Vandi...');
+            deferredInstall = null;
+        };
+    }
+});
+
+window.addEventListener('appinstalled', () => {
+    deferredInstall = null;
+    const btn = $('#install-btn');
+    if (btn) btn.hidden = true;
+    showToast('Ad Vandi installed successfully!');
+});
+
+// Service Worker Registration
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js', { scope: '/' })
+            .then(reg => {
+                reg.addEventListener('updatefound', () => {
+                    const w = reg.installing;
+                    w && w.addEventListener('statechange', () => {
+                        if (w.state === 'installed' && navigator.serviceWorker.controller) {
+                            showToast('Update available. Refresh to load new version.');
+                        }
+                    });
+                });
+            })
+            .catch(err => console.warn('[PWA] SW register:', err));
+    });
+}
+
+// App Shortcut routing (e.g. /?action=start)
+(() => {
+    const p = new URLSearchParams(window.location.search);
+    const act = p.get('action');
+    if (act) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+        setTimeout(() => {
+            if (act === 'start' && !S.run) start();
+            else if (act === 'location' && S.run && !S.run.end) loc();
+            else if (act === 'visit' && S.run && !S.run.end) visit();
+            else if (act === 'fuel' && S.run && !S.run.end) fuel();
+        }, 400);
+    }
+})();
