@@ -4,7 +4,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta name="theme-color" content="#0c1a2b">
+    <meta name="theme-color" content="#080c16">
     <title>Ad Vandi</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -13,18 +13,20 @@
     <noscript>
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600;700&display=swap">
     </noscript>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=5) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=11) }}">
 </head>
 
 <body>
     <main>
         <header class="top">
-            <h1 class="wordmark">Ad Vandi</h1>
+            <a class="brand" href="/" aria-label="Ad Vandi run log home">
+                <img class="brand-logo" src="{{ url_for('static', filename='ad-vandi-logo.png', v=1) }}" alt="Ad Vandi run log">
+            </a>
             <div id="status"></div>
         </header>
         <div id="app"></div>
     </main>
-    <script src="{{ url_for('static', filename='app.js', v=14) }}"></script>
+    <script src="{{ url_for('static', filename='app.js', v=20) }}"></script>
 </body>
 
 </html>

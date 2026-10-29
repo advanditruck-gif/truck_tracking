@@ -38,27 +38,104 @@ const gpsNow = fresh => new Promise(ok => { if (!navigator.geolocation) return o
 function shoot(title) {
     return new Promise(res => {
         const m = modal('<h3>' + title + '</h3><div class="vf"><video autoplay playsinline muted></video></div><p class="hint">Fill the frame with the subject and hold steady.</p><input type="file" accept="image/*" capture="environment" hidden><div class="row"><button class="g" id="x">Cancel</button><button id="c">' + ico('camera') + 'Capture</button></div>', 'md-camera');
-        const v = m.querySelector('video'), fb = m.querySelector('input'); let st = null, cam = false;
+        const v = m.querySelector('video'), frame = m.querySelector('.vf'), fb = m.querySelector('input'); let st = null, cam = false;
         const end = b => { st && st.getTracks().forEach(t => t.stop()); m.remove(); res(b) };
-        navigator.mediaDevices?.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false }).then(s => { st = s; cam = true; v.srcObject = s }).catch(() => { v.hidden = true });
+        navigator.mediaDevices?.getUserMedia({ video: { facingMode: { ideal: 'environment' }, aspectRatio: { ideal: frame.clientWidth / frame.clientHeight } }, audio: false }).then(s => { st = s; cam = true; v.srcObject = s }).catch(() => { v.hidden = true });
         m.querySelector('#x').onclick = () => end(null);
         m.querySelector('#c').onclick = async () => {
-            if (!cam) return fb.click(); const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
-            c.getContext('2d').drawImage(v, 0, 0); c.toBlob(async b => end(await shrink(b)), 'image/jpeg', .95)
+            if (!cam) return fb.click();
+            const sourceWidth = v.videoWidth, sourceHeight = v.videoHeight, frameRatio = frame.clientWidth / frame.clientHeight;
+            let sx = 0, sy = 0, sw = sourceWidth, sh = sourceHeight;
+            if (sourceWidth / sourceHeight > frameRatio) { sw = sourceHeight * frameRatio; sx = (sourceWidth - sw) / 2 }
+            else { sh = sourceWidth / frameRatio; sy = (sourceHeight - sh) / 2 }
+            const c = document.createElement('canvas'); c.width = Math.round(sw); c.height = Math.round(sh);
+            c.getContext('2d').drawImage(v, sx, sy, sw, sh, 0, 0, c.width, c.height);
+            c.toBlob(async b => end(await shrink(b)), 'image/jpeg', .95)
         };
         fb.onchange = async () => fb.files[0] && end(await shrink(fb.files[0]));
     })
 }
 const LBL = { km: 'Odometer (km)', business_name: 'Business name', amount_collected: 'Amount collected (₹)', receipt_no: 'Receipt or voucher no.', vehicle_no: 'Vehicle no.', gps: 'GPS', rate: 'Rate (₹/L)', volume: 'Volume (L)', amount: 'Amount (₹)' }, NARROW = ['date', 'time', 'rate', 'volume', 'amount', 'district', 'state', 'product', 'vehicle_no'];
+const validOdometer = value => /^\d+(?:\.\d+)?$/.test(String(value ?? '').replace(/,/g, '').trim());
 function review(title, kind, vals, th, note) {
+    if (kind === 'visit') return reviewVisit(vals);
     return new Promise(res => {
-        const m = modal('<h3>' + title + '</h3><p class="mu sub">Check the values, then save.</p>' + (th ? '<img class="th" src="' + th + '" alt="">' : '') + (note ? '<p class="note' + (/failed|No values|Nothing|not read/i.test(note) ? ' err' : '') + '">' + esc(note) + '</p>' : '') + '<div id="fl"></div><div class="row"><button class="g" id="x">Cancel</button><button id="ok">Save</button></div>', 'md-review'), ins = {};
+        const m = modal('<h3>' + title + '</h3><p class="mu sub">Check the detected values, then save. Cancel to retake the photo.</p>' + (th ? '<img class="th" src="' + th + '" alt="">' : '') + (note ? '<p class="note' + (/failed|No values|Nothing|not read/i.test(note) ? ' err' : '') + '">' + esc(note) + '</p>' : '') + '<div id="fl"></div><div class="row"><button class="g" id="x">Cancel</button><button id="ok">Save</button></div>', 'md-review'), ins = {};
+        const save = m.querySelector('#ok');
         FIELDS[kind].forEach(k => {
-            const l = document.createElement('label'); l.textContent = LBL[k] || k.replace(/_/g, ' '); if (!NARROW.includes(k)) l.className = 'wide'; const i = document.createElement('input'); i.value = vals[k] ?? '';
-            if (/amount_collected|km|rate|volume|amount$/.test(k)) i.inputMode = 'decimal'; ins[k] = i; l.append(i); m.querySelector('#fl').append(l)
+            const l = document.createElement('label'); l.textContent = LBL[k] || k.replace(/_/g, ' '); if (!NARROW.includes(k)) l.className = 'wide'; const i = document.createElement('input'); i.value = vals[k] ?? ''; i.readOnly = true;
+            ins[k] = i; l.append(i);
+            if (kind === 'cluster' && k === 'km') {
+                if (!validOdometer(i.value)) {
+                    save.disabled = true;
+                    const error = document.createElement('small'); error.className = 'field-error';
+                    error.textContent = 'Odometer reading is required. Cancel and retake the photo.';
+                    l.append(error);
+                }
+            }
+            m.querySelector('#fl').append(l)
         });
         m.querySelector('#x').onclick = () => { m.remove(); res(null) };
         m.querySelector('#ok').onclick = () => { const o = {}; for (const k in ins) o[k] = ins[k].value.trim(); m.remove(); res(o) }
+    })
+}
+function reviewVisit(vals) {
+    return new Promise(res => {
+        const businesses = ['MAGNUS', 'MERCHX', 'M&D', 'ALIMS'];
+        const priorBusiness = String(vals.business_name || '');
+        const isKnownBusiness = businesses.some(b => b.toLowerCase() === priorBusiness.toLowerCase());
+        const initialAreas = Array.isArray(vals.area) ? vals.area : vals.area ? [vals.area] : [];
+        const areas = initialAreas.map(a => String(a).trim()).filter(Boolean);
+        const m = modal('<h3>Business details</h3><p class="mu sub">Add a business visit to today’s log.</p><div class="visit-form">' +
+            '<label for="visit-business">Business</label><select id="visit-business"><option value="">Select a business</option>' +
+            businesses.map(b => '<option value="' + b + '">' + b + '</option>').join('') +
+            '<option value="__other">Other</option></select>' +
+            '<label class="other-business-label" for="visit-business-other" hidden>Business name</label><input id="visit-business-other" type="text" placeholder="Type business name" autocomplete="organization" hidden>' +
+            '<label for="visit-area">Areas covered today</label><div class="area-entry"><input id="visit-area" type="text" placeholder="e.g. Thalangara" autocomplete="off"><button class="g area-add" id="area-add" type="button">Add</button></div>' +
+            '<div class="area-tags" id="area-tags" aria-live="polite"></div><p class="visit-error" id="visit-error" role="alert" hidden></p>' +
+            '<label for="visit-amount">Amount collected (₹)</label><input id="visit-amount" type="number" inputmode="decimal" min="0" step="any" placeholder="0">' +
+            '</div><div class="row"><button class="g" id="x">Cancel</button><button id="ok">Save</button></div>', 'md-review md-visit');
+        const business = m.querySelector('#visit-business'), other = m.querySelector('#visit-business-other');
+        const otherLabel = m.querySelector('.other-business-label'), areaInput = m.querySelector('#visit-area');
+        const tags = m.querySelector('#area-tags'), error = m.querySelector('#visit-error');
+        business.value = priorBusiness ? isKnownBusiness ? businesses.find(b => b.toLowerCase() === priorBusiness.toLowerCase()) : '__other' : '';
+        if (business.value === '__other') other.value = priorBusiness;
+        const renderAreas = () => {
+            tags.innerHTML = areas.map((area, index) => '<span class="area-tag">' + esc(area) +
+                '<button type="button" aria-label="Remove ' + esc(area) + '" data-area-index="' + index + '">×</button></span>').join('');
+            tags.querySelectorAll('[data-area-index]').forEach(button => {
+                button.onclick = () => { areas.splice(Number(button.dataset.areaIndex), 1); renderAreas() };
+            });
+        };
+        const addArea = () => {
+            const area = areaInput.value.trim();
+            if (!area) { areaInput.focus(); return }
+            if (!areas.some(existing => existing.toLocaleLowerCase() === area.toLocaleLowerCase())) areas.push(area);
+            areaInput.value = ''; error.hidden = true; renderAreas(); areaInput.focus();
+        };
+        const updateBusiness = () => {
+            const showOther = business.value === '__other';
+            other.hidden = !showOther; otherLabel.hidden = !showOther;
+            if (showOther) other.focus();
+        };
+        business.onchange = updateBusiness;
+        m.querySelector('#area-add').onclick = addArea;
+        areaInput.onkeydown = event => {
+            if (event.key === 'Enter') { event.preventDefault(); addArea() }
+        };
+        renderAreas();
+        m.querySelector('#x').onclick = () => { m.remove(); res(null) };
+        m.querySelector('#ok').onclick = () => {
+            const businessName = business.value === '__other' ? other.value.trim() : business.value;
+            if (!businessName) {
+                error.textContent = business.value === '__other' ? 'Enter the business name.' : 'Select a business.';
+                error.hidden = false; (business.value === '__other' ? other : business).focus(); return;
+            }
+            if (!areas.length) { error.textContent = 'Add at least one area.'; error.hidden = false; areaInput.focus(); return }
+            const amount = m.querySelector('#visit-amount').value.trim();
+            m.remove();
+            res({ business_name: businessName, area: areas, amount_collected: amount });
+        };
     })
 }
 function add(t, d, th) {
@@ -76,7 +153,7 @@ async function snap(kind, title, extra = {}) {
         v.date = v.date || String(capturedAt.getDate()).padStart(2, '0') + '-' + months[capturedAt.getMonth()] + '-' + capturedAt.getFullYear();
         v.time = v.time || capturedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
     }
-    const err = d && d._error; if (d) delete d._error; const hasValues = FIELDS[kind].some(k => d && d[k] != null && String(d[k]).trim() !== ''); const note = kind === 'geo' ? 'Address lookup uses phone GPS via OpenStreetMap (© OpenStreetMap contributors).' + (geoError ? ' ' + geoError : '') : (err ? 'Reading failed: ' + err : (!hasValues ? 'No values returned. Server replied: ' + JSON.stringify(d) + ' (open /api/ping to check the server version)' : (kind === 'cluster' && !v.km ? 'The odometer was not read. Enter the km by hand.' : '')));
+    const err = d && d._error; if (d) delete d._error; const hasValues = FIELDS[kind].some(k => d && d[k] != null && String(d[k]).trim() !== ''); const note = kind === 'geo' ? 'Address lookup uses phone GPS via OpenStreetMap (© OpenStreetMap contributors).' + (geoError ? ' ' + geoError : '') : (err ? 'Reading failed: ' + err : (!hasValues ? 'No values returned. Server replied: ' + JSON.stringify(d) + ' (open /api/ping to check the server version)' : (kind === 'cluster' && !validOdometer(v.km) ? 'The odometer was not read. Cancel and retake the photo.' : '')));
     const o = await review(title, kind, v, URL.createObjectURL(b), note); return o && { o, th }
 }
 // ---- actions
@@ -120,14 +197,15 @@ const IC = {
     camera: '<path d="M4 8h3l1.5-2h7L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>', pin: '<path d="M12 21s7-6.2 7-11a7 7 0 10-14 0c0 4.8 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/>',
     store: '<path d="M3 9l2-5h14l2 5"/><path d="M4 9v11h16V9"/><path d="M9 20v-6h6v6"/>', fuel: '<path d="M5 20V5a1 1 0 011-1h7a1 1 0 011 1v15"/><path d="M4 20h11"/><path d="M14 9h2.5A1.5 1.5 0 0118 10.5V16a1.5 1.5 0 003 0V8l-3-3"/><path d="M7.5 8h4"/>',
     stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>', chev: '<path d="M9 6l6 6-6 6"/>', play: '<path d="M8 5v14l11-7z"/>', download: '<path d="M12 4v11"/><path d="M7 11l5 5 5-5"/><path d="M5 20h14"/>',
-    again: '<path d="M20 12a8 8 0 11-2.3-5.7"/><path d="M20 4v5h-5"/>'
+    again: '<path d="M20 12a8 8 0 11-2.3-5.7"/><path d="M20 4v5h-5"/>', clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    receipt: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/>'
 };
 const ico = (n, c = '') => '<svg class="ico ' + c + '" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + IC[n] + '</svg>';
 const km = v => v !== '' && v != null && Number.isFinite(+v) ? (+v).toLocaleString('en-IN') : '—', inr = v => '₹' + (+v || 0).toLocaleString('en-IN');
 const odo = d => [['Odometer', d.km && km(d.km) + ' km'], ['Read at', [d.date, d.time].filter(Boolean).join(', ')]];
 const SUM = {
     start_km: odo, stop_km: odo,
-    visit: d => [['Business', d.business_name], ['Area', d.area], ['Collected', d.amount_collected && inr(d.amount_collected)]],
+    visit: d => [['Business', d.business_name], ['Area', Array.isArray(d.area) ? d.area.join(', ') : d.area], ['Collected', d.amount_collected && inr(d.amount_collected)]],
     location: d => [['Place', [d.road, d.location].filter(Boolean).join(', ')], ['Region', [d.district, d.state].filter(Boolean).join(', ')], ['GPS', d.gps]],
     fuel: d => [['Fuel', d.fuel_for || d.product], ['Amount', d.amount && inr(d.amount)], ['Volume', d.volume && d.volume + ' L'], ['Receipt', d.receipt_no], ['Check', d.flag]]
 };
@@ -137,11 +215,13 @@ function draw() {
     if (S.run && !ev('start_km')[0]) { S.run = null; keep() }
     const r = S.run, A = $('#app'), done = !!(r && r.end);
     document.querySelectorAll && document.querySelectorAll('.topbar').forEach(x => x.remove());
-    if (!$('#status') && document.querySelector('main')) { const h = document.createElement('header'); h.className = 'top'; h.innerHTML = '<h1 class="wordmark">Ad Vandi</h1><div id="status"></div>'; document.querySelector('main').prepend(h) }
+    if (!$('#status') && document.querySelector('main')) { const h = document.createElement('header'); h.className = 'top'; h.innerHTML = '<a class="brand" href="/" aria-label="Ad Vandi run log home"><img class="brand-logo" src="/static/ad-vandi-logo.png?v=1" alt="Ad Vandi run log"></a><div id="status"></div>'; document.querySelector('main').prepend(h) }
     $('#status').innerHTML = '<span class="chip' + (r && !done ? ' live' : '') + '"><i></i>' + (!r ? 'Not started' : done ? 'Run closed' : 'Run in progress') + '</span>';
     if (!r) {
-        A.innerHTML = '<section class="hero"><div><h2>Start today’s run</h2><p>Photograph the odometer to open the log. The app then asks for a location photo every 30 minutes and keeps visits and fuel bills in one timeline.</p><button class="btn lg" id="s">' + ico('play') + 'Start run</button></div>' +
-            '<div class="led"><div class="readout dim">0000</div><div class="readout-label">Odometer, waiting for the start photo</div></div></section>' + (S.ev.length ? '<button class="btn ghost" id="rs">Clear old data</button>' : '');
+        const today = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: '2-digit', month: 'short' }).format(new Date()).replace(',', '').toUpperCase();
+        A.innerHTML = '<section class="hero"><div class="hero-copy"><div class="eyebrow">TODAY · ' + today + '</div><h2>Start today’s <em>run</em></h2><p>Photograph the odometer to open the log. We then ask for a location photo every 30 minutes and keep visits and fuel bills in one timeline.</p><div class="hero-actions"><button class="btn start-action" id="s">' + ico('play') + 'Start run</button><span class="start-meta">' + ico('clock') + 'Takes 10 seconds</span></div></div>' +
+            '<div class="idle-led"><div class="idle-led-head"><span>ODOMETER</span><span class="awaiting"><i></i>AWAITING PHOTO</span></div><div class="odo-digits" aria-label="Odometer awaiting start photo"><span>0</span><span>0</span><span>0</span><span>0</span></div><div class="idle-wait">' + ico('camera') + 'Waiting for the start photo</div><div class="idle-stats"><div><b>0 km</b><small>Distance</small></div><div><b>0</b><small>Visits</small></div><div><b>₹0</b><small>Fuel</small></div></div></div></section>' +
+            '<section class="steps" aria-label="How the run log works"><article class="step-card"><span class="step-number">01</span><span class="step-icon">' + ico('camera') + '</span><b>Snap the odometer</b><p>One photo opens today’s log.</p></article><article class="step-card"><span class="step-number">02</span><span class="step-icon">' + ico('pin') + '</span><b>Location check-ins</b><p>A gentle reminder every 30 minutes.</p></article><article class="step-card"><span class="step-number">03</span><span class="step-icon">' + ico('receipt') + '</span><b>Visits &amp; fuel bills</b><p>Everything in a single timeline.</p></article></section>' + (S.ev.length ? '<button class="btn ghost old-data" id="rs">Clear old data</button>' : '');
         $('#s').onclick = start; $('#rs') && ($('#rs').onclick = reset); return
     }
     const sk = +ev('start_km')[0].d.km, ek = ev('stop_km')[0] ? +ev('stop_km')[0].d.km : null, sum = (t, k) => ev(t).reduce((a, e) => a + (+e.d[k] || 0), 0);
@@ -162,8 +242,27 @@ function draw() {
 setInterval(() => {
     const r = S.run; if (r && !r.end && r.due && Date.now() > r.due && !r.notified) {
         r.notified = true; keep();
-        try { new Notification('UPLOAD CURRENT LOCATION IMAGE', { body: '30 minutes passed' }); navigator.vibrate && navigator.vibrate([300, 150, 300]) } catch (e) { } render()
+        try { new Notification('UPLOAD CURRENT LOCATION IMAGE', { body: '30 minutes passed', requireInteraction: true, vibrate: [600, 200, 600, 200, 600] }); navigator.vibrate && navigator.vibrate([300, 150, 300]) } catch (e) { } render()
     }
     else if (r && !r.end && !document.querySelector('.md')) render()
 }, 5000);
 render();
+// ---- alert sound for the 30-minute location photo (uses static/alert.mp3)
+const ALERT_GAP_MS = 100; // 0.1 second pause between repeats
+const SND = new Audio('/static/alert.mp3'); SND.preload = 'auto'; SND.volume = 1;
+let unlocked = false, ringing = false;
+function unlockAudio() { // browsers only allow sound after one tap on the page
+    if (unlocked) return; unlocked = true;
+    SND.muted = true; SND.play().then(() => { SND.pause(); SND.currentTime = 0; SND.muted = false }).catch(() => { SND.muted = false; unlocked = false });
+}
+['pointerdown', 'keydown', 'touchstart'].forEach(n => document.addEventListener(n, unlockAudio, { passive: true }));
+function isDue() { const r = S.run; return !!(r && !r.end && r.due && Date.now() > r.due && !document.querySelector('.md')) }
+function ring() {
+    if (!isDue()) { ringing = false; return }
+    ringing = true; SND.currentTime = 0;
+    try { navigator.vibrate && navigator.vibrate([600, 200, 600]) } catch (e) { }
+    SND.play().catch(() => { ringing = false });
+}
+SND.addEventListener('ended', () => setTimeout(ring, ALERT_GAP_MS));
+// plays the sound again and again (0.1 s gap) from the moment 30 minutes are up until the next location photo is uploaded
+setInterval(() => { if (!ringing && isDue()) ring() }, 1000);
