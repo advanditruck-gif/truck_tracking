@@ -3,7 +3,7 @@ Install:  py -m pip install -r requirements-ocr.txt      (downloads ~1-2 GB incl
 Returns the same fields as the Gemini reader: cluster {km,date,time}, geo {...}, fuel {...}.
 """
 import re
-
+import easyocr
 _reader = None
 
 MON = r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*"
@@ -18,7 +18,6 @@ DATE_PATTERNS = [  # your patterns, applied after _norm() turns '20- SEP -26' in
 def _get_reader():
     global _reader
     if _reader is None:
-        import easyocr
         _reader = easyocr.Reader(["en"], gpu=False)
     return _reader
 
@@ -126,7 +125,8 @@ def _km_best(*result_sets):
                 continue
             s = s.translate(_FIX)
             h = max(p[1] for p in box) - min(p[1] for p in box)
-            key = (h, len(s))
+            # odometers are 4-7 digits: prefer those over short gauge numbers (60, 120...), then the tallest
+            key = (len(s) >= 4, h, len(s))
             if best is None or key > best[0]:
                 best = (key, int(s), box)
     return (best[2], best[1]) if best else None

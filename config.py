@@ -16,17 +16,22 @@ if os.path.exists(env_file):
                     if _k and _k not in os.environ:
                         os.environ[_k] = _v
 
+import importlib.util
+HAS_EASYOCR = importlib.util.find_spec("easyocr") is not None  # really check that it is installed
+
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
+MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 DB_PATH = os.getenv("DB_PATH", "tracker.db")
 PORT = int(os.getenv("PORT", "5000"))
-# Reading engine: "auto" (runs EasyOCR first, then Gemini as fallback/completion) | "gemini" | "easyocr"
-ENGINE = os.getenv("EXTRACT_ENGINE", "auto").lower()
+# Reading engine: "auto" (runs EasyOCR first if available, then Gemini) | "gemini" | "easyocr"
+_default_engine = "auto" if HAS_EASYOCR else "gemini"
+ENGINE = os.getenv("EXTRACT_ENGINE", _default_engine).lower()
 # How dates/times are shown in the form (strftime). 12-hour time like "8:00 PM".
 DATE_FMT = os.getenv("DATE_FMT", "%d-%b-%Y")      # 20-Sep-2026  (use "%d-%b-%y" for 20-Sep-26)
 USE_HTTPS = bool(os.getenv("HTTPS"))  # phone camera needs HTTPS
 
 S, N = ["string", "null"], ["number", "null"]
+
 
 def f(t, d):
     return {"type": t, "description": d}
@@ -35,9 +40,9 @@ def f(t, d):
 # Fields Gemini must fill for each image type (null only if truly unreadable).
 SCHEMAS = {
     "cluster": {
-        "km": f(N, "Odometer reading beside the ODO label, digits only, no units."),
-        "date": f(S, "Date shown at top of the display as YYYY-MM-DD (e.g. 20-SEP-26 -> 2026-09-20)."),
-        "time": f(S, "Read the clock printed at the top-right of the display. For example, 8:00 PM must be returned as 20:00. Do not return null when the clock is legible."),
+        "km": f(N, "Vehicle total odometer / mileage reading (digits only, e.g. 7148 or 123456). Look for numbers labeled with 'ODO', 'km', 'TOTAL', or the primary 4-7 digit counter on the digital or analog dashboard. Do not return null if any odometer reading is legible."),
+        "date": f(S, "Date shown on the display as YYYY-MM-DD (e.g. 20-SEP-26 -> 2026-09-20)."),
+        "time": f(S, "Clock time shown on the display (e.g. 8:00 PM -> 20:00, 24-hour HH:MM). Do not return null when the clock is legible."),
     },
     "geo": {
         "date": f(S, "Date in the overlay as YYYY-MM-DD."),
@@ -61,10 +66,12 @@ SCHEMAS = {
 }
 
 PROMPTS = {
-    "cluster": "This is a photo of a vehicle instrument cluster display. Read the odometer (the number beside ODO, "
-               "usually bottom of the screen) and the date and time shown at the top. The clock is at the top-right; "
-               "read it carefully, including AM/PM, and convert it to 24-hour HH:MM (8:00 PM is 20:00). "
-               "Ignore people, hands and reflections.",
+    "cluster": "This is a photo of a vehicle instrument cluster / dashboard display. "
+               "Read the odometer reading carefully (the cumulative total kilometers driven by the vehicle, "
+               "typically a 4 to 7 digit number like 7148, 45210, 154200, often displayed near 'ODO', 'km', 'TOTAL', "
+               "or on the main digital LCD / analog mileage counter). "
+               "Also read the date and clock time shown on the display (convert clock to 24-hour HH:MM). "
+               "Ignore steering wheel, people, hands, and reflections.",
     "geo": "Read only details that are actually visible in this image or its text overlay. Extract any visible date, "
            "time, address, and printed coordinates. Do not guess a street, town, district, or state from the scene; "
            "return null for details not visible.",

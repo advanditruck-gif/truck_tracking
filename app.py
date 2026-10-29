@@ -10,11 +10,13 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from flask import Flask, jsonify, render_template, request
 import config, db
+import extractor
 from extractor import extract
 
 app = Flask(__name__)
 
-if config.ENGINE in ("easyocr", "auto", "ocr_first"):  # load the OCR models in the background so the first photo is not slow
+# Gemini is tried first in "auto" mode, so only pre-load the OCR models when EasyOCR is the main engine.
+if config.ENGINE == "easyocr" and getattr(config, "HAS_EASYOCR", False):
     import threading, ocr_extractor
     threading.Thread(target=ocr_extractor.warmup, daemon=True).start()
 

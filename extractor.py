@@ -4,7 +4,7 @@ import urllib.request, urllib.error
 import config
 from config import DATE_FMT, ENGINE, MODEL, PROMPTS, SCHEMAS
 
-VERSION = "gemini-v1"
+VERSION = "gemini-first-v2"
 _genai_client = None
 
 
@@ -15,9 +15,31 @@ def _get_api_key():
 def _clean(d):
     if not isinstance(d, dict):
         return {}
-    if isinstance(d.get("km"), str):
-        digits = re.sub(r"[^\d]", "", d["km"])
+
+    # Check common aliases for km:
+    if d.get("km") in (None, ""):
+        for alias in ("odometer", "odo", "km_reading", "distance", "reading", "mileage", "total_km", "total"):
+            if d.get(alias) not in (None, ""):
+                d["km"] = d[alias]
+                break
+
+    if d.get("km") not in (None, ""):
+        s = str(d["km"]).split(".")[0]
+        digits = re.sub(r"[^\d]", "", s)
         d["km"] = int(digits) if digits else None
+
+    # Check common aliases for date / time:
+    if d.get("date") in (None, ""):
+        for alias in ("display_date", "reading_date"):
+            if d.get(alias) not in (None, ""):
+                d["date"] = d[alias]
+                break
+    if d.get("time") in (None, ""):
+        for alias in ("clock", "display_time", "reading_time"):
+            if d.get(alias) not in (None, ""):
+                d["time"] = d[alias]
+                break
+
     for num_key in ("rate", "volume", "amount"):
         if isinstance(d.get(num_key), str):
             cleaned = re.sub(r"[^\d.]", "", d[num_key])
@@ -57,42 +79,45 @@ def extract(kind, image_bytes):
 
 def _extract(kind, image_bytes):
     """Dispatch by ENGINE:
-    - auto (or ocr_first): Runs EasyOCR first, then uses Gemini if OCR fails or misses fields.
-    - easyocr: Runs only EasyOCR (offline).
-    - gemini: Runs only Gemini vision.
+    - auto (default): Gemini first; if it fails or misses fields, EasyOCR fills the gaps.
+    - gemini: Gemini only.
+    - easyocr: EasyOCR only (offline).
     """
-    if ENGINE == "gemini":
+    has_ocr = getattr(config, "HAS_EASYOCR", False)
+
+    if ENGINE == "gemini" or (not has_ocr and ENGINE != "easyocr"):
         return extract_gemini(kind, image_bytes)
     if ENGINE == "easyocr":
         import ocr_extractor
         return ocr_extractor.extract(kind, image_bytes)
 
-    # Default / "auto" / "ocr_first": EasyOCR first, then Gemini
-    import ocr_extractor
-    print(f"[{kind}] Reading with EasyOCR first...")
-    o = ocr_extractor.extract(kind, image_bytes)
+    # "auto": Gemini first, then EasyOCR
+    print(f"[{kind}] Reading with Gemini first...")
+    g = extract_gemini(kind, image_bytes)
 
-    if "_error" in o:
-        print("EasyOCR failed, trying Gemini:", o["_error"])
-        g = extract_gemini(kind, image_bytes)
-        if "_error" not in g:
-            return g
-        return {"_error": "OCR: " + o["_error"] + " | Gemini: " + g["_error"]}
+    if "_error" in g:
+        print("Gemini failed, trying EasyOCR:", g["_error"])
+        import ocr_extractor
+        o = ocr_extractor.extract(kind, image_bytes)
+        if "_error" not in o:
+            return o
+        return {"_error": "Gemini: " + g["_error"] + " | OCR: " + o["_error"]}
 
-    # If EasyOCR succeeded, check for missing fields to fill with Gemini
-    expected_keys = list(SCHEMAS.get(kind, {}).keys()) or list(o.keys())
-    missing = [k for k in expected_keys if o.get(k) in (None, "")]
+    # Gemini worked, but check for missing fields and let OCR fill them
+    expected_keys = list(SCHEMAS.get(kind, {}).keys()) or list(g.keys())
+    missing = [k for k in expected_keys if g.get(k) in (None, "")]
     if missing:
-        print(f"EasyOCR missed fields {missing}, querying Gemini to fill...")
-        g = extract_gemini(kind, image_bytes)
-        if "_error" not in g:
+        print(f"Gemini missed fields {missing}, trying EasyOCR to fill...")
+        import ocr_extractor
+        o = ocr_extractor.extract(kind, image_bytes)
+        if "_error" not in o:
             for k in missing:
-                if g.get(k) not in (None, ""):
-                    o[k] = g[k]
+                if o.get(k) not in (None, ""):
+                    g[k] = o[k]
         else:
-            print("Gemini could not fill missing fields:", g["_error"])
+            print("EasyOCR could not fill missing fields:", o["_error"])
 
-    return o
+    return g
 
 
 def _parse_model_json(text):
@@ -148,11 +173,19 @@ def extract_gemini(kind, image_bytes):
         f"Instructions:\n"
         f"- Output ONLY a valid JSON object matching the requested keys.\n"
         f"- Use null only if a value is genuinely not visible or unreadable.\n"
-        f"- Do not include markdown code block formatting if possible."
+        f"- Do not include markdown code block formatting."
     )
+    if kind == "cluster":
+        prompt += (
+            "\n\nImportant instructions for reading odometer (km):\n"
+            "- Locate the vehicle cumulative odometer reading (total kilometers driven).\n"
+            "- Look for the main 4-7 digit reading (e.g. 7148, 45210, 154200).\n"
+            "- It may be labeled with 'ODO', 'km', 'TOTAL', or appear without an explicit label on the LCD screen or analog counter.\n"
+            "- Always extract these digits as a clean integer for 'km'. Do not return null if any odometer digits are visible.\n"
+        )
 
     models_to_try = [MODEL]
-    for fallback_model in ("gemini-2.5-flash-lite", "gemini-2.0-flash-lite", "gemini-2.5-flash", "gemini-1.5-flash"):
+    for fallback_model in ("gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"):
         if fallback_model not in models_to_try:
             models_to_try.append(fallback_model)
 
@@ -211,8 +244,9 @@ def extract_gemini(kind, image_bytes):
             last_error = e
             err_msg = str(e)
             print(f"Gemini model {model_name} failed: {err_msg}")
-            # If it's a 404 / model not found error, loop to next fallback model
-            if "404" in err_msg or "not found" in err_msg.lower():
+            # model retired (404), quota hit (429) or overloaded (503): try the next model
+            if any(c in err_msg for c in ("404", "429", "503", "RESOURCE_EXHAUSTED", "UNAVAILABLE")) \
+                    or "not found" in err_msg.lower():
                 continue
             break
 
