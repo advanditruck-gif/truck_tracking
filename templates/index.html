@@ -1,14 +1,17 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Haulmark — Fleet Tracker</title>
-<link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=4) }}">
+<meta name="theme-color" content="#0c1a2b">
+<title>Ad Vandi</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600;700&display=swap"></noscript>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=5) }}">
 </head><body><main>
-<header class="topbar">
- <div class="brand-mark" aria-hidden="true">T</div>
- <div class="brand-copy"><span class="brand-kicker">FLEET OPERATIONS</span><h1>Truck Daily Tracker</h1></div>
- <div class="live-pill"><span></span> DAILY LOG</div>
+<header class="top">
+ <h1 class="wordmark">Ad Vandi</h1>
+ <div id="status"></div>
 </header>
 <div id="app"></div></main>
-<script src="{{ url_for('static', filename='app.js', v=9) }}"></script>
+<script src="{{ url_for('static', filename='app.js', v=10) }}"></script>
 </body></html>
