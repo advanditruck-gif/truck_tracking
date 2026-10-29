@@ -70,8 +70,9 @@ def api_reverse_geocode():
         district = address.get("city_district") or address.get("county")
     return jsonify({
         "road": address.get("road") or address.get("pedestrian") or address.get("footway") or address.get("residential"),
-        "location": address.get("neighbourhood") or address.get("suburb") or address.get("village")
-                    or address.get("town") or address.get("city") or address.get("municipality"),
+        "location": address.get("suburb") or address.get("village") or address.get("town")
+                    or address.get("city") or address.get("hamlet") or address.get("neighbourhood")
+                    or address.get("municipality"),
         "district": district,
         "state": state,
     })

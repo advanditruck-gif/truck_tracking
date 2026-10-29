@@ -33,7 +33,7 @@ const thumb = async b => {
     const bm = await createImageBitmap(b), c = document.createElement('canvas'); c.width = c.height = 96;
     const s = Math.min(bm.width, bm.height); c.getContext('2d').drawImage(bm, 0, 0, s, s, 0, 0, 96, 96); return c.toDataURL('image/jpeg', .6)
 };
-const gpsNow = () => new Promise(ok => navigator.geolocation ? navigator.geolocation.getCurrentPosition(p => ok(p.coords.latitude.toFixed(5) + ',' + p.coords.longitude.toFixed(5)), () => ok(''), { timeout: 6000 }) : ok(''));
+const gpsNow = fresh => new Promise(ok => { if (!navigator.geolocation) return ok({ err: 'This browser has no GPS support.' }); navigator.geolocation.getCurrentPosition(p => ok({ c: p.coords.latitude.toFixed(5) + ',' + p.coords.longitude.toFixed(5) }), e => ok({ err: e.code === 1 ? 'Location permission is blocked. Allow Location for this site in the browser settings.' : e.code === 3 ? 'GPS timed out. Turn on the phone Location switch and try again.' : 'GPS position unavailable. Turn on the phone Location switch.' }), { enableHighAccuracy: true, timeout: fresh ? 15000 : 20000, maximumAge: fresh ? 0 : 60000 }) });
 // Live camera only: no gallery picker. Fallback = native camera intent (capture) if getUserMedia is blocked.
 function shoot(title) {
     return new Promise(res => {
@@ -66,10 +66,10 @@ function add(t, d, th) {
     if (!sample) fetch('/api/events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ run: S.run && S.run.id, t, at: e.at, d }) }).catch(() => { }); render()
 }
 async function snap(kind, title, extra = {}) {
-    const b = await shoot(title); if (!b) return null; const capturedAt = new Date(), done = busy('Reading image…');
-    const [d, th, g] = await Promise.all([extract(kind, b), thumb(b), kind === 'geo' ? gpsNow() : '']); done();
-    const v = Object.assign({}, d, extra); if (kind === 'geo') v.device_gps = g; if (kind === 'geo' && !v.gps) v.gps = g;
-    const coordinates = g || v.gps; let geoError = ''; if (kind === 'geo' && coordinates) { const address = await reverseGeocode(coordinates); geoError = address._error || ''; for (const key of ['road', 'location', 'state']) if (!v[key] && address[key]) v[key] = address[key]; if (address.district) v.district = address.district; }
+    const gp = kind === 'geo' ? gpsNow() : null; const b = await shoot(title); if (!b) return null; const gpsFinal = kind === 'geo' ? gpsNow(true).then(async f => { if (f.c) return f; const w = await gp; return w.c ? w : f }) : null; const capturedAt = new Date(), done = busy('Reading image…');
+    const [d, th, g] = await Promise.all([extract(kind, b), thumb(b), gpsFinal]); done();
+    const gps = (g && g.c) || '', gpsErr = (g && g.err) || ''; const v = Object.assign({}, d, extra); if (kind === 'geo') v.device_gps = gps; if (kind === 'geo' && !v.gps) v.gps = gps;
+    const coordinates = gps || v.gps; let geoError = ''; if (kind === 'geo' && !coordinates) geoError = 'GPS failed: ' + (gpsErr || 'no position found.'); if (kind === 'geo' && coordinates) { const address = await reverseGeocode(coordinates); geoError = address._error || ''; for (const key of ['road', 'state']) if (!v[key] && address[key]) v[key] = address[key]; if (address.location) v.location = address.location; if (address.district) v.district = address.district; }
     if (kind === 'geo' && String(v.state || '').trim().toLowerCase() === 'kerala' && String(v.district || '').trim().toLowerCase() === 'ernad') v.district = 'Malappuram';
     if (kind === 'cluster' || kind === 'geo') {
         const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
