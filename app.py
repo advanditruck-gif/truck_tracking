@@ -4,7 +4,7 @@ Run:  pip install -r requirements.txt
       python app.py   -> open http://127.0.0.1:5000
       Phone (HTTPS):  pip install pyopenssl, set HTTPS=1, then python app.py
 """
-import csv, hmac, io, json, os, secrets, sqlite3
+import csv, hmac, io, json, os, secrets
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -224,7 +224,7 @@ def api_add():
     j = request.get_json(force=True)
     try:
         db.add_event(j.get("run"), j.get("t"), j.get("at"), j.get("d"))
-    except sqlite3.IntegrityError:
+    except db.DuplicateReceiptError:
         return jsonify({"error": "duplicate receipt"}), 409
     return jsonify({"ok": True})
 
