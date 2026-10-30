@@ -20,6 +20,7 @@ import importlib.util
 HAS_EASYOCR = importlib.util.find_spec("easyocr") is not None  # really check that it is installed
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+ADMIN_KEY = os.getenv("ADMIN_KEY", "")
 MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 DB_PATH = os.getenv("DB_PATH", "tracker.db")
 PORT = int(os.getenv("PORT", "5000"))

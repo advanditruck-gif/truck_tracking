@@ -4,17 +4,47 @@ Run:  pip install -r requirements.txt
       python app.py   -> open http://127.0.0.1:5000
       Phone (HTTPS):  pip install pyopenssl, set HTTPS=1, then python app.py
 """
-import json, os, sqlite3
+import csv, hmac, io, json, os, secrets, sqlite3
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, abort, jsonify, redirect, render_template, request, session, url_for
 import config, db
 import extractor
 import report as reportmod
 from extractor import extract
 
 app = Flask(__name__)
+app.secret_key = os.getenv("FLASK_SECRET_KEY") or config.ADMIN_KEY or os.urandom(32)
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=bool(os.getenv("RENDER") or config.USE_HTTPS),
+)
+
+
+def _admin_key_is_configured():
+    return len(config.ADMIN_KEY.encode("utf-8")) >= 32
+
+
+def _admin_csrf_token():
+    token = session.get("admin_csrf_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session["admin_csrf_token"] = token
+    return token
+
+
+def _valid_admin_csrf():
+    token = session.get("admin_csrf_token", "")
+    submitted = request.form.get("csrf_token", "")
+    return bool(token and submitted and hmac.compare_digest(token, submitted))
+
+
+def _require_admin():
+    if not session.get("admin_authenticated"):
+        return redirect(url_for("admin_page"))
+    return None
 
 # Gemini is tried first in "auto" mode, so only pre-load the OCR models when EasyOCR is the main engine.
 if config.ENGINE == "easyocr" and getattr(config, "HAS_EASYOCR", False):
@@ -30,6 +60,98 @@ def index():
 @app.get("/report")
 def report_page():
     return render_template("report.html")
+
+
+@app.get("/admin")
+def admin_page():
+    if not _admin_key_is_configured():
+        return render_template("admin.html", key_configured=False), 503
+    return render_template(
+        "admin.html",
+        key_configured=True,
+        authenticated=bool(session.get("admin_authenticated")),
+        csrf_token=_admin_csrf_token(),
+        events=db.admin_events() if session.get("admin_authenticated") else [],
+        notice=request.args.get("notice", ""),
+        error="",
+    )
+
+
+@app.post("/admin/login")
+def admin_login():
+    if not _admin_key_is_configured():
+        return render_template("admin.html", key_configured=False), 503
+    if not _valid_admin_csrf():
+        abort(400, "Invalid form token.")
+    submitted_key = request.form.get("admin_key", "")
+    if not hmac.compare_digest(config.ADMIN_KEY, submitted_key):
+        return render_template(
+            "admin.html",
+            key_configured=True,
+            authenticated=False,
+            csrf_token=_admin_csrf_token(),
+            events=[],
+            notice="",
+            error="Invalid admin key.",
+        ), 401
+    session.clear()
+    session["admin_authenticated"] = True
+    _admin_csrf_token()
+    return redirect(url_for("admin_page"))
+
+
+@app.post("/admin/logout")
+def admin_logout():
+    if not _admin_key_is_configured():
+        return render_template("admin.html", key_configured=False), 503
+    if not session.get("admin_authenticated") or not _valid_admin_csrf():
+        abort(400, "Invalid form token.")
+    session.clear()
+    return redirect(url_for("admin_page"))
+
+
+@app.post("/admin/delete/<int:event_id>")
+def admin_delete_event(event_id):
+    if not _admin_key_is_configured():
+        return render_template("admin.html", key_configured=False), 503
+    auth_redirect = _require_admin()
+    if auth_redirect:
+        return auth_redirect
+    if not _valid_admin_csrf():
+        abort(400, "Invalid form token.")
+    deleted = db.delete_event(event_id)
+    notice = "Record deleted." if deleted else "Record not found."
+    return redirect(url_for("admin_page", notice=notice))
+
+
+@app.get("/admin/export")
+def admin_export():
+    if not _admin_key_is_configured():
+        return render_template("admin.html", key_configured=False), 503
+    auth_redirect = _require_admin()
+    if auth_redirect:
+        return auth_redirect
+
+    def safe_cell(value):
+        text = str(value)
+        if text.startswith(("=", "+", "-", "@", "\t", "\r")):
+            return "'" + text
+        return text
+
+    output = io.StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow(["ID", "Run", "Type", "Recorded at", "Data"])
+    for event in db.admin_events():
+        writer.writerow([
+            safe_cell(event["id"]),
+            safe_cell(event["run"]),
+            safe_cell(event["t"]),
+            safe_cell(event["at"]),
+            safe_cell(json.dumps(event["d"], ensure_ascii=False)),
+        ])
+    response = app.response_class(output.getvalue(), mimetype="text/csv")
+    response.headers["Content-Disposition"] = 'attachment; filename="truck-tracker-records.csv"'
+    return response
 
 
 @app.get("/api/report")

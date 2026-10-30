@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#080c16">
+    <title>Admin - Ad Vandi</title>
+    <style>
+        :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #080c16; color: #eef2ff; }
+        body { margin: 0; padding: 24px; }
+        main { max-width: 1000px; margin: auto; }
+        a, button { color: #c7d7ff; }
+        .panel, article { background: #111827; border: 1px solid #293449; border-radius: 12px; padding: 18px; margin: 16px 0; }
+        input, button { font: inherit; padding: 10px 12px; border-radius: 7px; border: 1px solid #52617a; }
+        input { width: min(100%, 420px); box-sizing: border-box; background: #080c16; color: white; }
+        button { background: #263c61; cursor: pointer; }
+        .danger { background: #652e36; }
+        .error { color: #ff9a9a; }
+        .notice { color: #a7f3c1; }
+        .actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+        pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+        article header { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    </style>
+</head>
+
+<body>
+    <main>
+        <p><a href="/">← Back to tracker</a></p>
+        <h1>Admin</h1>
+        {% if not key_configured %}
+        <section class="panel">
+            <h2>Admin key not configured</h2>
+            <p>Set <code>ADMIN_KEY</code> in Render's Environment settings to a private random value of at least 32 characters, then redeploy.</p>
+        </section>
+        {% elif not authenticated %}
+        <form class="panel" method="post" action="{{ url_for('admin_login') }}">
+            <h2>Admin sign in</h2>
+            {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <p><label for="admin-key">Admin key</label></p>
+            <p><input id="admin-key" type="password" name="admin_key" autocomplete="current-password" required></p>
+            <button type="submit">Sign in</button>
+        </form>
+        {% else %}
+        {% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
+        <div class="actions">
+            <a href="{{ url_for('admin_export') }}">Download CSV</a>
+            <form method="post" action="{{ url_for('admin_logout') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit">Sign out</button>
+            </form>
+        </div>
+        <h2>Records ({{ events|length }})</h2>
+        {% for event in events %}
+        <article>
+            <header>
+                <strong>#{{ event.id }} · {{ event.t }} · {{ event.at }}</strong>
+                <form method="post" action="{{ url_for('admin_delete_event', event_id=event.id) }}"
+                    onsubmit="return confirm('Permanently delete record #{{ event.id }}?')">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button class="danger" type="submit">Delete</button>
+                </form>
+            </header>
+            <p>Run: {{ event.run }}</p>
+            <pre>{{ event.d|tojson(indent=2) }}</pre>
+        </article>
+        {% else %}
+        <p>No records found.</p>
+        {% endfor %}
+        {% endif %}
+    </main>
+</body>
+
+</html>
