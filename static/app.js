@@ -138,9 +138,22 @@ function reviewVisit(vals) {
         };
     })
 }
-function add(t, d, th) {
+async function add(t, d, th, image) {
     const e = { t, at: new Date().toISOString(), d, th }; S.ev.push(e); keep();
-    if (!sample) fetch('/api/events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ run: S.run && S.run.id, t, at: e.at, d }) }).catch(() => { }); render()
+    if (!sample) {
+        const event = { run: S.run && S.run.id, t, at: e.at, d };
+        const options = image
+            ? (() => { const body = new FormData(); body.append('event', JSON.stringify(event)); body.append('image', image, 'capture.jpg'); return { method: 'POST', body } })()
+            : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(event) };
+        try {
+            const response = await fetch('/api/events', options), result = await response.json();
+            if (!response.ok) throw new Error(result.error || 'Server rejected the record.');
+        } catch (error) {
+            console.error('Event sync failed:', error);
+            alert('This record is saved on this device, but could not be stored in Supabase. Check your connection and server setup before relying on it.');
+        }
+    }
+    render()
 }
 async function snap(kind, title, extra = {}) {
     const gp = kind === 'geo' ? gpsNow() : null; const b = await shoot(title); if (!b) return null; const gpsFinal = kind === 'geo' ? gpsNow(true).then(async f => { if (f.c) return f; const w = await gp; return w.c ? w : f }) : null; const capturedAt = new Date(), done = busy('Reading image…');
@@ -154,18 +167,18 @@ async function snap(kind, title, extra = {}) {
         v.time = v.time || capturedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
     }
     const err = d && d._error; if (d) delete d._error; const hasValues = FIELDS[kind].some(k => d && d[k] != null && String(d[k]).trim() !== ''); const note = kind === 'geo' ? 'Address lookup uses phone GPS via OpenStreetMap (© OpenStreetMap contributors).' + (geoError ? ' ' + geoError : '') : (err ? 'Reading failed: ' + err : (!hasValues ? 'No values returned. Server replied: ' + JSON.stringify(d) + ' (open /api/ping to check the server version)' : (kind === 'cluster' && !validOdometer(v.km) ? 'The odometer was not read. Cancel and retake the photo.' : '')));
-    const o = await review(title, kind, v, URL.createObjectURL(b), note); return o && { o, th }
+    const o = await review(title, kind, v, URL.createObjectURL(b), note); return o && { o, th, image: b }
 }
 // ---- actions
 async function start() {
     try { Notification.requestPermission() } catch (e) { }
     const r = await snap('cluster', 'Upload cluster image'); if (!r) return;
-    S.run = { id: Date.now(), start: new Date().toISOString(), due: null, end: null }; add('start_km', r.o, r.th); await visit()
+    S.run = { id: Date.now(), start: new Date().toISOString(), due: null, end: null }; await add('start_km', r.o, r.th, r.image); await visit()
 }
-async function visit() { const o = await review('Business details', 'visit', {}); if (!o) return; add('visit', o); await loc('Capture location image') }
+async function visit() { const o = await review('Business details', 'visit', {}); if (!o) return; await add('visit', o); await loc('Capture location image') }
 async function loc(t) {
     const r = await snap('geo', t || 'Upload current location image'); if (!r) return;
-    S.run.due = Date.now() + 30 * 60000; S.run.notified = false; add('location', r.o, r.th)
+    S.run.due = Date.now() + 30 * 60000; S.run.notified = false; await add('location', r.o, r.th, r.image)
 }
 function fuel() {
     const m = modal('<h3>Choose fuel type</h3><p class="mu sub">Pick what you are refuelling.</p><button class="fuel-option" id="p"><span class="fuel-icon">P</span><span><b>Petrol</b><small>Generator, ₹1000 preset</small></span><span class="fuel-arrow">›</span></button><button class="fuel-option" id="d"><span class="fuel-icon">D</span><span><b>Diesel</b><small>Vehicle, ₹1500 preset</small></span><span class="fuel-arrow">›</span></button><button class="g" id="x">Cancel</button>', 'md-choice');
@@ -175,13 +188,13 @@ function fuel() {
         if (S.ev.some(e => e.t === 'fuel' && e.d.receipt_no === rc)) return alert('Duplicate bill: receipt ' + rc + ' was already uploaded.');
         if (!r.o.product) r.o.product = type.split(' - ')[0];
         r.o.fuel_for = type; r.o.preset = preset; r.o.flag = Number(r.o.amount) !== preset ? 'Amount differs from ₹' + preset : '';
-        add('fuel', r.o, r.th)
+        await add('fuel', r.o, r.th, r.image)
     };
     m.querySelector('#p').onclick = () => go('Petrol - Generator', 1000); m.querySelector('#d').onclick = () => go('Diesel - Vehicle', 1500); m.querySelector('#x').onclick = () => m.remove()
 }
 async function stop() {
     if (!confirm('Stop today’s run?')) return; const r = await snap('cluster', 'Upload cluster image'); if (!r) return;
-    S.run.end = new Date().toISOString(); add('stop_km', r.o, r.th)
+    S.run.end = new Date().toISOString(); await add('stop_km', r.o, r.th, r.image)
 }
 function reset() { if (confirm('Clear today’s data from this device? Export CSV first.')) { S = { run: null, ev: [] }; keep(); render() } }
 async function csv() {
@@ -229,8 +242,7 @@ function draw() {
     const fuelTotal = pred => ev('fuel').filter(e => pred(e.d)).reduce((a, e) => a + (+e.d.amount || 0), 0);
     const areasCovered = () => {
         const out = [], add = a => { a = String(a || '').trim(); if (a && !out.some(x => x.toLowerCase() === a.toLowerCase())) out.push(a) };
-        ev('location').forEach(e => add(e.d.location || e.d.road));
-        ev('visit').forEach(e => (e.d.area || []).forEach(add));
+        ev('location').forEach(e => add(e.d.location));
         return out;
     };
     const reportRow = (label, value, cls) => '<div class="rep-row"><span>' + esc(label) + '</span><b' + (cls ? ' class="' + cls + '"' : '') + '>' + esc(value) + '</b></div>';

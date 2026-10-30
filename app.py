@@ -5,6 +5,7 @@ Run:  pip install -r requirements.txt
       Phone (HTTPS):  pip install pyopenssl, set HTTPS=1, then python app.py
 """
 import csv, hmac, io, json, os, secrets
+from uuid import uuid4
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -12,9 +13,11 @@ from flask import Flask, abort, jsonify, redirect, render_template, request, ses
 import config, db
 import extractor
 import report as reportmod
+import supabase_storage
 from extractor import extract
 
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
 app.secret_key = os.getenv("FLASK_SECRET_KEY") or config.ADMIN_KEY or os.urandom(32)
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
@@ -119,9 +122,25 @@ def admin_delete_event(event_id):
         return auth_redirect
     if not _valid_admin_csrf():
         abort(400, "Invalid form token.")
+    event = db.admin_event(event_id)
+    if event and event["d"].get("image_path"):
+        supabase_storage.delete_image(event["d"]["image_path"])
     deleted = db.delete_event(event_id)
     notice = "Record deleted." if deleted else "Record not found."
     return redirect(url_for("admin_page", notice=notice))
+
+
+@app.get("/admin/image/<int:event_id>")
+def admin_event_image(event_id):
+    if not _admin_key_is_configured():
+        return render_template("admin.html", key_configured=False), 503
+    auth_redirect = _require_admin()
+    if auth_redirect:
+        return auth_redirect
+    event = db.admin_event(event_id)
+    if not event or not event["d"].get("image_path"):
+        abort(404)
+    return redirect(supabase_storage.signed_image_url(event["d"]["image_path"]))
 
 
 @app.get("/admin/export")
@@ -164,6 +183,10 @@ def api_ping():
     """Open /api/ping in the browser to confirm which code is running."""
     return jsonify({"extractor": getattr(extractor, "VERSION", "old"), "engine": config.ENGINE, "model": config.MODEL,
                     "api_key_set": bool(getattr(config, "GEMINI_API_KEY", "") or os.getenv("GEMINI_API_KEY")),
+                    "database": "supabase" if config.DATABASE_URL else "sqlite",
+                    "supabase_image_storage_configured": bool(
+                        config.SUPABASE_URL and config.SUPABASE_SERVICE_ROLE_KEY
+                    ),
                     "folder": os.path.dirname(os.path.abspath(__file__))})
 
 
@@ -221,12 +244,39 @@ def api_extract():
 
 @app.post("/api/events")
 def api_add():
-    j = request.get_json(force=True)
+    image = request.files.get("image")
+    if image:
+        try:
+            j = json.loads(request.form["event"])
+        except (KeyError, json.JSONDecodeError):
+            return jsonify({"error": "A valid event payload is required."}), 400
+        if not isinstance(j, dict) or not isinstance(j.get("d"), dict):
+            return jsonify({"error": "Event data must be a JSON object."}), 400
+        if image.mimetype != "image/jpeg":
+            return jsonify({"error": "Only JPEG images are accepted."}), 415
+        image_bytes = image.read()
+        if not image_bytes.startswith(b"\xff\xd8\xff"):
+            return jsonify({"error": "The uploaded file is not a valid JPEG image."}), 415
+        if not config.DATABASE_URL:
+            return jsonify({"error": "DATABASE_URL is not configured; records are not connected to Supabase."}), 503
+        if not config.SUPABASE_URL or not config.SUPABASE_SERVICE_ROLE_KEY:
+            return jsonify({"error": "Private Supabase image storage is not configured on the server."}), 503
+        image_path = f"events/{uuid4().hex}.jpg"
+        supabase_storage.upload_image(image_path, image_bytes, image.mimetype)
+    else:
+        j = request.get_json(force=True)
+        if not isinstance(j, dict) or not isinstance(j.get("d"), dict):
+            return jsonify({"error": "Event data must be a JSON object."}), 400
+    j["d"].pop("image_path", None)
+    if image:
+        j["d"]["image_path"] = image_path
     try:
-        db.add_event(j.get("run"), j.get("t"), j.get("at"), j.get("d"))
+        event_id = db.add_event(j.get("run"), j.get("t"), j.get("at"), j.get("d"))
     except db.DuplicateReceiptError:
+        if image:
+            supabase_storage.delete_image(image_path)
         return jsonify({"error": "duplicate receipt"}), 409
-    return jsonify({"ok": True})
+    return jsonify({"ok": True, "id": event_id})
 
 
 @app.get("/api/events")

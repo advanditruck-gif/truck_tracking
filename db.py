@@ -39,16 +39,21 @@ def add_event(run_id, t, at, data):
             from psycopg.types.json import Jsonb
 
             try:
-                c.execute("INSERT INTO public.events(run_id,t,at,data,receipt) VALUES(%s,%s,%s,%s,%s)",
-                          (str(run_id), t, at, Jsonb(data), receipt))
+                cursor = c.execute(
+                    "INSERT INTO public.events(run_id,t,at,data,receipt) VALUES(%s,%s,%s,%s,%s) RETURNING id",
+                    (str(run_id), t, at, Jsonb(data), receipt),
+                )
             except psycopg.errors.UniqueViolation as error:
                 raise DuplicateReceiptError from error
         else:
             try:
-                c.execute("INSERT INTO events(run_id,t,at,data,receipt) VALUES(?,?,?,?,?)",
-                          (str(run_id), t, at, json.dumps(data), receipt))
+                cursor = c.execute(
+                    "INSERT INTO events(run_id,t,at,data,receipt) VALUES(?,?,?,?,?)",
+                    (str(run_id), t, at, json.dumps(data), receipt),
+                )
             except sqlite3.IntegrityError as error:
                 raise DuplicateReceiptError from error
+        return cursor.fetchone()[0] if DATABASE_URL else cursor.lastrowid
 
 
 def all_events():
@@ -63,6 +68,19 @@ def admin_events():
         table = "public.events" if DATABASE_URL else "events"
         rows = c.execute(f"SELECT id,run_id,t,at,data FROM {table} ORDER BY id DESC").fetchall()
     return [{"id": r[0], "run": r[1], "t": r[2], "at": r[3], "d": _decode_data(r[4])} for r in rows]
+
+
+def admin_event(event_id):
+    with conn() as c:
+        table = "public.events" if DATABASE_URL else "events"
+        placeholder = "%s" if DATABASE_URL else "?"
+        row = c.execute(
+            f"SELECT id,run_id,t,at,data FROM {table} WHERE id = {placeholder}",
+            (event_id,),
+        ).fetchone()
+    if not row:
+        return None
+    return {"id": row[0], "run": row[1], "t": row[2], "at": row[3], "d": _decode_data(row[4])}
 
 
 def delete_event(event_id):

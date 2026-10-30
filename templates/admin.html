@@ -63,6 +63,9 @@
                 </form>
             </header>
             <p>Run: {{ event.run }}</p>
+            {% if event.d.get('image_path') %}
+            <p><a href="{{ url_for('admin_event_image', event_id=event.id) }}" target="_blank" rel="noopener">View captured image</a></p>
+            {% endif %}
             <pre>{{ event.d|tojson(indent=2) }}</pre>
         </article>
         {% else %}

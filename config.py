@@ -24,6 +24,9 @@ ADMIN_KEY = os.getenv("ADMIN_KEY", "")
 MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 DB_PATH = os.getenv("DB_PATH", "tracker.db")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SECRET_KEY", "")
+SUPABASE_STORAGE_BUCKET = os.getenv("SUPABASE_STORAGE_BUCKET", "truck-tracker-images")
 PORT = int(os.getenv("PORT", "5000"))
 # Reading engine: "auto" (runs EasyOCR first if available, then Gemini) | "gemini" | "easyocr"
 _default_engine = "auto" if HAS_EASYOCR else "gemini"

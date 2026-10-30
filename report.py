@@ -27,13 +27,8 @@ def _is_diesel(d):
 
 
 def _place(d):
-    """Just the locality name from a location photo, e.g. 'Manjeri' — the same
-    short name a driver types in on a business visit, so the two sources dedupe
-    instead of listing 'Manjeri' once on its own and again as 'Manjeri, <road>'."""
-    locality = str(d.get("location") or "").strip()
-    if locality:
-        return locality
-    return str(d.get("road") or "").strip()
+    """Return the locality resolved for a captured location photo."""
+    return str(d.get("location") or "").strip()
 
 
 def build_reports(events):
@@ -64,18 +59,13 @@ def build_reports(events):
         diesel_volume = sum(_num(e["d"].get("volume")) for e in fuels if _is_diesel(e["d"]))
         collected = sum(_num(e["d"].get("amount_collected")) for e in visits)
 
-        # Areas covered: one line per location photo uploaded during the run,
-        # plus any area the driver typed in on a business visit, de-duplicated.
+        # Areas covered come only from captured location photos, not manually
+        # entered business-visit areas.
         areas = []
         for e in locations:
             place = _place(e["d"])
             if place and place.casefold() not in (a.casefold() for a in areas):
                 areas.append(place)
-        for e in visits:
-            for a in (e["d"].get("area") or []):
-                a = str(a).strip()
-                if a and a.casefold() not in (x.casefold() for x in areas):
-                    areas.append(a)
 
         reports.append({
             "run": rid,
