@@ -124,7 +124,10 @@ def admin_delete_event(event_id):
         abort(400, "Invalid form token.")
     event = db.admin_event(event_id)
     if event and event["d"].get("image_path"):
-        supabase_storage.delete_image(event["d"]["image_path"])
+        try:
+            supabase_storage.delete_image(event["d"]["image_path"])
+        except Exception as e:
+            app.logger.warning("Could not delete image from Supabase Storage: %s", e)
     deleted = db.delete_event(event_id)
     notice = "Record deleted." if deleted else "Record not found."
     return redirect(url_for("admin_page", notice=notice))
@@ -140,7 +143,10 @@ def admin_event_image(event_id):
     event = db.admin_event(event_id)
     if not event or not event["d"].get("image_path"):
         abort(404)
-    return redirect(supabase_storage.signed_image_url(event["d"]["image_path"]))
+    try:
+        return redirect(supabase_storage.signed_image_url(event["d"]["image_path"]))
+    except Exception as e:
+        abort(502, description=f"Could not reach Supabase Storage: {e}")
 
 
 @app.get("/admin/export")
@@ -257,12 +263,14 @@ def api_add():
         image_bytes = image.read()
         if not image_bytes.startswith(b"\xff\xd8\xff"):
             return jsonify({"error": "The uploaded file is not a valid JPEG image."}), 415
-        if not config.DATABASE_URL:
-            return jsonify({"error": "DATABASE_URL is not configured; records are not connected to Supabase."}), 503
         if not config.SUPABASE_URL or not config.SUPABASE_SERVICE_ROLE_KEY:
             return jsonify({"error": "Private Supabase image storage is not configured on the server."}), 503
         image_path = f"events/{uuid4().hex}.jpg"
-        supabase_storage.upload_image(image_path, image_bytes, image.mimetype)
+        try:
+            supabase_storage.upload_image(image_path, image_bytes, image.mimetype)
+        except Exception as error:
+            app.logger.error("Failed to upload image to Supabase: %s", error)
+            return jsonify({"error": f"Failed to upload image to Supabase Storage: {error}"}), 502
     else:
         j = request.get_json(force=True)
         if not isinstance(j, dict) or not isinstance(j.get("d"), dict):
@@ -274,7 +282,10 @@ def api_add():
         event_id = db.add_event(j.get("run"), j.get("t"), j.get("at"), j.get("d"))
     except db.DuplicateReceiptError:
         if image:
-            supabase_storage.delete_image(image_path)
+            try:
+                supabase_storage.delete_image(image_path)
+            except Exception:
+                pass
         return jsonify({"error": "duplicate receipt"}), 409
     return jsonify({"ok": True, "id": event_id})
 
