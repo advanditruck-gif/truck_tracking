@@ -1,11 +1,5 @@
 const K = 'trk1', $ = s => document.querySelector(s);
-let S; try { S = JSON.parse(localStorage.getItem(K)) } catch (e) { } S = S || { run: null, ev: [] }; S.pending = S.pending || [];
-const showToast = (txt, ms = 3200) => {
-    const el = $('#pwa-toast'); if (!el) return;
-    el.textContent = txt; el.hidden = false;
-    clearTimeout(el._tm); el._tm = setTimeout(() => { el.hidden = true }, ms);
-};
-
+let S; try { S = JSON.parse(localStorage.getItem(K)) } catch (e) { } S = S || { run: null, ev: [] };
 const keep = () => { try { localStorage.setItem(K, JSON.stringify(S)) } catch (e) { } };
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 let sample = null; (async () => { try { if (window.claude) sample = await claude.use('sample') } catch (e) { } })();
@@ -144,41 +138,9 @@ function reviewVisit(vals) {
         };
     })
 }
-async function sendEventPayload(p) {
-    const r = await fetch('/api/events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p) });
-    return r.ok;
-}
-async function syncPendingEvents() {
-    if (!navigator.onLine || !S.pending || !S.pending.length) return;
-    const queue = S.pending.slice(), remaining = [];
-    for (const item of queue) {
-        try {
-            const ok = await sendEventPayload(item);
-            if (!ok) remaining.push(item);
-        } catch (e) {
-            remaining.push(item);
-        }
-    }
-    const synced = S.pending.length - remaining.length;
-    S.pending = remaining; keep();
-    if (synced > 0) showToast('Synced ' + synced + ' offline event' + (synced > 1 ? 's' : '') + ' to server.');
-}
 function add(t, d, th) {
     const e = { t, at: new Date().toISOString(), d, th }; S.ev.push(e); keep();
-    const payload = { run: S.run && S.run.id, t, at: e.at, d };
-    if (!sample) {
-        if (!navigator.onLine) {
-            S.pending = S.pending || []; S.pending.push(payload); keep();
-            showToast('Saved offline. Will sync when reconnected.');
-        } else {
-            sendEventPayload(payload).then(ok => {
-                if (!ok) { S.pending = S.pending || []; S.pending.push(payload); keep() }
-            }).catch(() => {
-                S.pending = S.pending || []; S.pending.push(payload); keep();
-            });
-        }
-    }
-    render();
+    if (!sample) fetch('/api/events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ run: S.run && S.run.id, t, at: e.at, d }) }).catch(() => { }); render()
 }
 async function snap(kind, title, extra = {}) {
     const gp = kind === 'geo' ? gpsNow() : null; const b = await shoot(title); if (!b) return null; const gpsFinal = kind === 'geo' ? gpsNow(true).then(async f => { if (f.c) return f; const w = await gp; return w.c ? w : f }) : null; const capturedAt = new Date(), done = busy('Reading image…');
@@ -253,7 +215,7 @@ function draw() {
     if (S.run && !ev('start_km')[0]) { S.run = null; keep() }
     const r = S.run, A = $('#app'), done = !!(r && r.end);
     document.querySelectorAll && document.querySelectorAll('.topbar').forEach(x => x.remove());
-    if (!$('#status') && document.querySelector('main')) { const h = document.createElement('header'); h.className = 'top'; h.innerHTML = '<a class="brand" href="/" aria-label="Ad Vandi run log home"><img class="brand-logo" src="/static/ad-vandi-logo.png?v=1" alt="Ad Vandi run log"></a><div id="status"></div>'; document.querySelector('main').prepend(h) }
+    if (!$('#status') && document.querySelector('main')) { const h = document.createElement('header'); h.className = 'top'; h.innerHTML = '<a class="brand" href="/" aria-label="Ad Vandi run log home"><img class="brand-logo" src="/static/ad-vandi-logo.png?v=1" alt="Ad Vandi run log"></a><div class="top-right"><a class="report-link desktop-only" href="/report">Reports</a><div id="status"></div></div>'; document.querySelector('main').prepend(h) }
     $('#status').innerHTML = '<span class="chip' + (r && !done ? ' live' : '') + '"><i></i>' + (!r ? 'Not started' : done ? 'Run closed' : 'Run in progress') + '</span>';
     if (!r) {
         const today = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: '2-digit', month: 'short' }).format(new Date()).replace(',', '').toUpperCase();
@@ -263,17 +225,35 @@ function draw() {
         $('#s').onclick = start; $('#rs') && ($('#rs').onclick = reset); return
     }
     const sk = +ev('start_km')[0].d.km, ek = ev('stop_km')[0] ? +ev('stop_km')[0].d.km : null, sum = (t, k) => ev(t).reduce((a, e) => a + (+e.d[k] || 0), 0);
+    const isPetrol = d => /petrol/i.test(d.fuel_for || d.product || ''), isDiesel = d => /diesel/i.test(d.fuel_for || d.product || '');
+    const fuelTotal = pred => ev('fuel').filter(e => pred(e.d)).reduce((a, e) => a + (+e.d.amount || 0), 0);
+    const areasCovered = () => {
+        const out = [], add = a => { a = String(a || '').trim(); if (a && !out.some(x => x.toLowerCase() === a.toLowerCase())) out.push(a) };
+        ev('location').forEach(e => add(e.d.location || e.d.road));
+        ev('visit').forEach(e => (e.d.area || []).forEach(add));
+        return out;
+    };
+    const reportRow = (label, value, cls) => '<div class="rep-row"><span>' + esc(label) + '</span><b' + (cls ? ' class="' + cls + '"' : '') + '>' + esc(value) + '</b></div>';
     const WIN = 30 * 60000, left = r.due ? r.due - Date.now() : null, over = !done && r.due && left <= 0, min = r.due ? Math.max(0, Math.ceil(left / 60000)) : 0, p = r.due ? Math.min(100, Math.max(0, (1 - left / WIN) * 100)) : 0;
     const ring = done ? '' : '<div class="ring' + (over ? ' is-over' : '') + '" style="--p:' + (over ? 100 : p.toFixed(1)) + '" role="img" aria-label="' + (over ? 'Location photo due now' : r.due ? 'Next location photo in ' + min + ' minutes' : 'No location photo yet') + '"><span><b>' + (over ? 'Now' : r.due ? min : '—') + '</b><small>' + (r.due && !over ? 'min to photo' : 'photo due') + '</small></span></div>';
     const panel = '<section class="led"><div class="led-main"><div><div class="readout xl">' + (done ? km(ek - sk) : km(sk)) + '</div><div class="readout-label">' + (done ? 'Distance driven (km)' : 'Start odometer (km)') + '</div></div>' + ring + '</div>' +
         '<div class="led-row"><div><div class="readout">' + inr(sum('visit', 'amount_collected')) + '</div><div class="readout-label">Collected</div></div><div><div class="readout">' + inr(sum('fuel', 'amount')) + '</div><div class="readout-label">Fuel spent</div></div></div></section>';
     const act = (id, ic, t, sm, cls) => '<button class="act' + (cls || '') + '" id="' + id + '">' + ico(ic) + '<span><strong>' + t + '</strong><small>' + sm + '</small></span>' + ico('chev', 'chev') + '</button>';
     const banner = over ? '<div class="due-banner" role="alert"><div><b>Location photo due</b><span>30 minutes have passed since the last one.</span></div><button class="btn" id="l2">Upload now</button></div>' : '';
+    const stopEv = ev('stop_km')[0];
+    const reportCard = done && stopEv ? '<section class="rep-card-run today-report"><div class="rep-card-run-head">' +
+        '<span class="rep-card-run-date">Today’s report</span><span class="status-pill closed">Closed</span></div>' +
+        reportRow('Start KM', km(sk) + ' km') + reportRow('Start time', ev('start_km')[0].d.time || '—') +
+        reportRow('End KM', km(ek) + ' km') + reportRow('End time', stopEv.d.time || '—') +
+        reportRow('Total Petrol', inr(fuelTotal(isPetrol))) + reportRow('Total Diesel', inr(fuelTotal(isDiesel))) +
+        reportRow('Balance amount', inr(sum('visit', 'amount_collected') - (fuelTotal(isPetrol) + fuelTotal(isDiesel))),
+            (sum('visit', 'amount_collected') - (fuelTotal(isPetrol) + fuelTotal(isDiesel))) < 0 ? 'balance-neg' : 'balance-pos') +
+        reportRow('Areas covered', areasCovered().length ? areasCovered().join(', ') : '—') + '</section>' : '';
     const controls = done ? '<div class="acts"><button class="btn lg" id="e">' + ico('download') + 'Export CSV</button><button class="btn ghost" id="rs">' + ico('again') + 'Start new day</button></div>' :
         '<div class="acts">' + act('l', 'pin', 'Upload current location image', 'Geo-tagged camera photo', over ? ' is-due' : '') + act('v', 'store', 'New business visit', 'Business, area and amount collected') + act('f', 'fuel', 'Upload fuel bill', 'Petrol for the generator or diesel for the vehicle') + '</div>' +
         '<button class="btn quiet" id="st">' + ico('stop') + 'Stop run</button><button class="link" id="dm">Demo: skip the 30-minute wait</button>';
     const tl = '<section class="tlwrap"><h3>Today’s timeline <span class="count">' + S.ev.length + '</span></h3><ol class="tl">' + S.ev.slice().reverse().map(e => '<li data-t="' + e.t + '">' + (e.th ? '<img src="' + e.th + '" alt="">' : '') + '<div class="tl-body"><div class="tl-head"><strong>' + N[e.t] + '</strong><time>' + new Date(e.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '</time></div><div class="kv">' + rows(e) + '</div></div></li>').join('') + '</ol></section>';
-    A.innerHTML = '<div class="grid"><div>' + banner + panel + controls + '</div>' + tl + '</div>';
+    A.innerHTML = '<div class="grid"><div>' + banner + panel + reportCard + controls + '</div>' + tl + '</div>';
     const b = (i, f) => $('#' + i) && ($('#' + i).onclick = f); b('l', () => loc()); b('l2', () => loc()); b('v', visit); b('f', fuel); b('st', stop); b('e', csv); b('rs', reset);
     b('dm', () => { r.due = Date.now() - 1; r.notified = false; keep(); render() })
 }
@@ -288,125 +268,19 @@ render();
 // ---- alert sound for the 30-minute location photo (uses static/alert.mp3)
 const ALERT_GAP_MS = 100; // 0.1 second pause between repeats
 const SND = new Audio('/static/alert.mp3'); SND.preload = 'auto'; SND.volume = 1;
-let unlocked = false, ringing = false, forced = false; // forced = alarm started by a server push
-// stop pull-to-refresh: scrolling up at the top reloads the page and silences the alert
-(() => { const s = document.createElement('style'); s.textContent = 'html,body{overscroll-behavior-y:contain}'; document.head.appendChild(s) })();
-function audioAllowed() { return navigator.userActivation ? navigator.userActivation.hasBeenActive : unlocked }
-function unlockAudio() { // a real tap on the page is needed once; muted play does NOT prove the browser allowed sound
-    if (unlocked) return;
-    SND.muted = false; SND.volume = shouldRing() ? 1 : 0; // silent unlock when nothing is due
-    SND.play().then(() => {
-        unlocked = true; hideEnableBar();
-        if (shouldRing()) { ringing = true; SND.volume = 1 } else { SND.pause(); SND.currentTime = 0; SND.volume = 1 }
-    }).catch(() => { SND.volume = 1 });
+let unlocked = false, ringing = false;
+function unlockAudio() { // browsers only allow sound after one tap on the page
+    if (unlocked) return; unlocked = true;
+    SND.muted = true; SND.play().then(() => { SND.pause(); SND.currentTime = 0; SND.muted = false }).catch(() => { SND.muted = false; unlocked = false });
 }
-['pointerup', 'touchend', 'click', 'keydown'].forEach(n => window.addEventListener(n, unlockAudio, { passive: true, capture: true }));
-// "Enable sound" bar: shown whenever the browser is still blocking the sound, so one tap on it fixes everything
-function hideEnableBar() { const b = document.getElementById('soundEnableBar'); if (b) b.remove() }
-function showEnableBar() {
-    if (unlocked || document.getElementById('soundEnableBar') || !document.body) return;
-    const b = document.createElement('button'); b.id = 'soundEnableBar'; b.textContent = '🔊 Tap here to enable alert sound';
-    b.style.cssText = 'position:fixed;left:12px;right:12px;top:12px;z-index:99998;padding:14px;font-size:16px;font-weight:700;border:0;border-radius:12px;background:#e8ca78;color:#15120c';
-    b.onclick = () => { unlockAudio(); setTimeout(() => { if (!unlocked) { SND.play().then(() => { unlocked = true; hideEnableBar(); setTimeout(() => { if (!shouldRing()) { SND.pause(); SND.currentTime = 0 } }, 400) }).catch(() => { }) } }, 0) };
-    document.body.appendChild(b);
-}
-setTimeout(() => { if (!audioAllowed()) showEnableBar() }, 1500);
+['pointerdown', 'keydown', 'touchstart'].forEach(n => document.addEventListener(n, unlockAudio, { passive: true }));
 function isDue() { const r = S.run; return !!(r && !r.end && r.due && Date.now() > r.due && !document.querySelector('.md')) }
-function shouldRing() { return forced || isDue() }
 function ring() {
-    if (!shouldRing()) { ringing = false; SND.pause(); return }
+    if (!isDue()) { ringing = false; return }
     ringing = true; SND.currentTime = 0;
     try { navigator.vibrate && navigator.vibrate([600, 200, 600]) } catch (e) { }
-    SND.play().catch(() => { ringing = false; showEnableBar() });
+    SND.play().catch(() => { ringing = false });
 }
 SND.addEventListener('ended', () => setTimeout(ring, ALERT_GAP_MS));
-// if the browser pauses the sound by itself (scroll, focus change) while it should be ringing, start it again
-SND.addEventListener('pause', () => { if (ringing && !SND.ended && shouldRing()) SND.play().catch(() => { }) });
-document.addEventListener('visibilitychange', () => { if (!document.hidden && !ringing && shouldRing()) ring() });
 // plays the sound again and again (0.1 s gap) from the moment 30 minutes are up until the next location photo is uploaded
-setInterval(() => { if (!ringing && shouldRing()) ring() }, 1000);
-
-// STOP button for alarms started by a server push (the 30-minute alert stops itself when the photo is uploaded)
-function stopForced() { forced = false; ringing = false; SND.pause(); SND.currentTime = 0; const b = document.getElementById('alarmStopBar'); if (b) b.style.display = 'none' }
-function showStopBar() {
-    let b = document.getElementById('alarmStopBar');
-    if (!b) {
-        b = document.createElement('button'); b.id = 'alarmStopBar'; b.textContent = '🔔 STOP ALARM'; b.onclick = stopForced;
-        b.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:99999;padding:16px;font-size:18px;font-weight:700;border:0;border-radius:12px;background:#c62828;color:#fff';
-        document.body.appendChild(b);
-    }
-    b.style.display = 'block';
-}
-if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', e => {
-    if (e.data && e.data.type === 'ALARM') { forced = true; showStopBar(); if (!ringing) ring() }
-});
-
-// ---- PWA Lifecycle, Offline & Install Handlers
-function updateNetworkBadge() {
-    const chip = $('#offline-chip');
-    if (chip) chip.hidden = navigator.onLine;
-    if (navigator.onLine) syncPendingEvents();
-    else showToast('Offline mode active. Logs are saved locally.');
-}
-window.addEventListener('online', updateNetworkBadge);
-window.addEventListener('offline', updateNetworkBadge);
-updateNetworkBadge();
-
-// PWA Install prompt handling
-let deferredInstall = null;
-window.addEventListener('beforeinstallprompt', e => {
-    e.preventDefault();
-    deferredInstall = e;
-    const btn = $('#install-btn');
-    if (btn) {
-        btn.hidden = false;
-        btn.onclick = async () => {
-            if (!deferredInstall) return;
-            btn.hidden = true;
-            deferredInstall.prompt();
-            const res = await deferredInstall.userChoice;
-            if (res && res.outcome === 'accepted') showToast('Installing Ad Vandi...');
-            deferredInstall = null;
-        };
-    }
-});
-
-window.addEventListener('appinstalled', () => {
-    deferredInstall = null;
-    const btn = $('#install-btn');
-    if (btn) btn.hidden = true;
-    showToast('Ad Vandi installed successfully!');
-});
-
-// Service Worker Registration
-if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js', { scope: '/' })
-            .then(reg => {
-                reg.addEventListener('updatefound', () => {
-                    const w = reg.installing;
-                    w && w.addEventListener('statechange', () => {
-                        if (w.state === 'installed' && navigator.serviceWorker.controller) {
-                            showToast('Update available. Refresh to load new version.');
-                        }
-                    });
-                });
-            })
-            .catch(err => console.warn('[PWA] SW register:', err));
-    });
-}
-
-// App Shortcut routing (e.g. /?action=start)
-(() => {
-    const p = new URLSearchParams(window.location.search);
-    const act = p.get('action');
-    if (act) {
-        window.history.replaceState({}, document.title, window.location.pathname);
-        setTimeout(() => {
-            if (act === 'start' && !S.run) start();
-            else if (act === 'location' && S.run && !S.run.end) loc();
-            else if (act === 'visit' && S.run && !S.run.end) visit();
-            else if (act === 'fuel' && S.run && !S.run.end) fuel();
-        }, 400);
-    }
-})();
+setInterval(() => { if (!ringing && isDue()) ring() }, 1000);

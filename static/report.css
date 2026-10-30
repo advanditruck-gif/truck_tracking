@@ -1,0 +1,59 @@
+/* Daily report — a stacked card per run on phones, a wide table on a laptop/desktop window. */
+.report-main{width:min(100% - 40px,1280px)}
+
+/* ---- summary cards ---- */
+.rep-summary{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:26px}
+.rep-card{padding:16px 18px;border:1px solid var(--line);border-radius:16px;background:var(--surface)}
+.rep-card b{display:block;color:var(--led);font:600 24px/1.2 Lora,Georgia,serif;font-variant-numeric:tabular-nums}
+.rep-card span{display:block;margin-top:4px;color:var(--mu);font:12px/1.3 Arial,sans-serif}
+
+/* ---- toolbar ---- */
+.rep-bar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px;flex-wrap:wrap}
+.rep-bar .field{display:flex;align-items:center;gap:8px}
+.rep-bar label{margin:0;font-size:12px;color:var(--mu);font-weight:600}
+.rep-bar input,.rep-bar select{min-height:38px;margin:0;padding:0 10px;border:1px solid var(--line);border-radius:10px;
+  background:var(--raised);color:var(--ink);font:inherit;font-size:14px;font-weight:500;width:auto}
+.rep-bar input[type=date]{color-scheme:dark;font-variant-numeric:tabular-nums}
+.rep-bar input[type=date]::-webkit-calendar-picker-indicator{cursor:pointer;filter:invert(.8) brightness(1.3)}
+.rep-bar button{width:auto;min-height:38px;margin:0;padding:0 16px;font-size:13px}
+.rep-bar button.rep-clear{min-height:38px;padding:0 12px;font-size:12px;font-weight:600}
+
+/* ---- table ---- */
+.rep-table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:18px;background:var(--surface)}
+table.rep{width:100%;border-collapse:collapse;font-size:13px;white-space:nowrap}
+table.rep th,table.rep td{padding:12px 14px;text-align:left;border-bottom:1px solid var(--line)}
+table.rep th{position:sticky;top:0;background:var(--raised);color:var(--mu);font:600 11px/1.2 Arial,sans-serif;
+  letter-spacing:.05em;text-transform:uppercase;z-index:1}
+table.rep tbody tr:last-child td{border-bottom:0}
+table.rep tbody tr:hover{background:rgba(255,255,255,.03)}
+table.rep td.num{font-variant-numeric:tabular-nums;text-align:right}
+table.rep td.areas{white-space:normal;min-width:220px;max-width:340px}
+.area-pill{display:inline-block;margin:2px 4px 2px 0;padding:2px 9px;border-radius:999px;background:var(--raised);
+  color:var(--ink);font-size:11.5px;font-weight:600}
+.status-pill{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font:600 11px/1.2 Arial,sans-serif}
+.status-pill.open{background:var(--amber-soft);color:var(--amber)}
+.status-pill.closed{background:rgba(165,201,151,.14);color:var(--ok)}
+.balance-neg{color:var(--wr)}
+.balance-pos{color:var(--ok)}
+.rep-empty{padding:40px 20px;text-align:center;color:var(--mu)}
+
+/* ---- run cards: one read-only card per run, for phones ---- */
+.rep-cards{display:grid;gap:14px}
+.rep-card-run{padding:18px 20px;border:1px solid var(--line);border-radius:18px;background:var(--surface);box-shadow:var(--sh)}
+.rep-card-run-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px;padding-bottom:12px;border-bottom:1px solid var(--line)}
+.rep-card-run-date{font:600 15px/1.2 Lora,Georgia,serif;letter-spacing:-.01em}
+.rep-row{display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding:11px 0;border-bottom:1px solid var(--line)}
+.rep-row:last-child{border-bottom:0;padding-bottom:0}
+.rep-row>span{flex:none;color:var(--mu);font-size:13px}
+.rep-row>b{flex:1;text-align:right;font-weight:700;font-size:15px;overflow-wrap:anywhere}
+
+/* table is the desktop view; cards are the phone/tablet view */
+.rep-table-wrap{display:none}
+@media (min-width:860px){
+  .rep-cards{display:none}
+  .rep-table-wrap{display:block}
+}
+@media (max-width:679px){
+  .rep-summary{grid-template-columns:repeat(2,1fr)}
+  .rep-bar{gap:12px}
+}

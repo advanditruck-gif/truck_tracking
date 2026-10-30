@@ -22,17 +22,15 @@ h1,h2,h3,p{margin:0}
 .top{display:flex;align-items:center;justify-content:space-between;gap:12px;height:34px;margin-bottom:30px}
 .brand{display:inline-flex;align-items:center;height:34px;text-decoration:none}
 .brand-logo{display:block;width:154px;height:58px;margin-left:-19px;object-fit:contain;object-position:left center}
+.top-right{display:flex;align-items:center;gap:14px}
+.report-link{color:var(--mu);font:600 12px/1.2 Arial,sans-serif;text-decoration:none;padding:6px 2px;border-bottom:1px solid transparent}
+.report-link:hover{color:var(--ink);border-color:var(--line)}
+/* The full report history is a desktop/laptop view; phones get today's report inline at stop time instead. */
+.report-link.desktop-only{display:none}
+@media (min-width:860px){.report-link.desktop-only{display:inline-block}}
 .chip{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border:1px solid rgba(255,255,255,.07);border-radius:99px;background:rgba(255,255,255,.055);color:#a7adbb;font:500 12px/1.2 Arial,sans-serif}
 .chip i{width:8px;height:8px;border-radius:50%;background:var(--mu)}
 .chip.live i{background:var(--ok);box-shadow:0 0 0 4px rgba(22,135,90,.18)}
-.top-controls{display:flex;align-items:center;gap:8px}
-.chip-offline{background:rgba(217,189,112,.12);color:var(--amber);border-color:rgba(217,189,112,.3)}
-.chip-offline i{background:var(--amber);box-shadow:0 0 0 3px rgba(217,189,112,.2)}
-.chip-install{background:rgba(232,202,120,.12);color:var(--btn);border-color:rgba(232,202,120,.35);cursor:pointer;padding:6px 13px;width:auto;min-height:auto;margin:0;font-weight:600}
-.chip-install:hover{background:rgba(232,202,120,.22);border-color:var(--btn)}
-.chip-install .ico{width:13px;height:13px}
-.pwa-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:rgba(17,22,33,.94);backdrop-filter:blur(12px);border:1px solid rgba(232,202,120,.3);color:var(--ink);padding:10px 18px;border-radius:99px;font:500 13px/1.3 Arial,sans-serif;box-shadow:0 8px 32px rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;gap:10px;pointer-events:none;transition:opacity .25s ease}
-.pwa-toast[hidden]{display:none!important}
 
 /* buttons */
 button{font:inherit;font-weight:700;display:inline-flex;align-items:center;justify-content:center;gap:9px;min-height:50px;width:100%;margin-top:10px;padding:0 20px;border:1px solid transparent;border-radius:14px;background:var(--btn);color:var(--on-btn);cursor:pointer;transition:transform .12s,opacity .12s}
@@ -114,6 +112,20 @@ button.w{background:var(--wr);color:#fff}
 .act:hover,.fuel-option:hover{border-color:var(--ink)}
 .fuel-icon{display:grid;place-items:center;width:42px;height:42px;border-radius:12px;background:var(--raised);font-weight:700}
 .fuel-arrow{font-size:22px}
+
+/* today's report: shown on the phone right after the driver stops the run */
+.rep-card-run{padding:18px 20px;margin-top:16px;border:1px solid var(--line);border-radius:18px;background:var(--surface);box-shadow:var(--sh)}
+.rep-card-run-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px;padding-bottom:12px;border-bottom:1px solid var(--line)}
+.rep-card-run-date{font:600 15px/1.2 Lora,Georgia,serif;letter-spacing:-.01em}
+.rep-row{display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding:11px 0;border-bottom:1px solid var(--line)}
+.rep-row:last-child{border-bottom:0;padding-bottom:0}
+.rep-row>span{flex:none;color:var(--mu);font-size:13px}
+.rep-row>b{flex:1;text-align:right;font-weight:700;font-size:15px;overflow-wrap:anywhere}
+.status-pill{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font:600 11px/1.2 Arial,sans-serif}
+.status-pill.open{background:var(--amber-soft);color:var(--amber)}
+.status-pill.closed{background:rgba(165,201,151,.14);color:var(--ok)}
+.balance-neg{color:var(--wr)}
+.balance-pos{color:var(--ok)}
 
 /* timeline: a real sequence, so it gets a spine */
 .tlwrap h3{display:flex;align-items:center;gap:10px;margin-bottom:16px;font-size:18px;letter-spacing:-.01em}

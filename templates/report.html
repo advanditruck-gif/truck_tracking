@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#080c16">
+    <title>Ad Vandi — Reports</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600;700&display=swap"
+        media="print" onload="this.media='all'">
+    <noscript>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600;700&display=swap">
+    </noscript>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=12) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='report.css', v=3) }}">
+</head>
+
+<body>
+    <main class="report-main">
+        <header class="top">
+            <a class="brand" href="/" aria-label="Ad Vandi run log home">
+                <img class="brand-logo" src="{{ url_for('static', filename='ad-vandi-logo.png', v=1) }}" alt="Ad Vandi run log">
+            </a>
+            <div class="top-right">
+                <a class="report-link" href="/">Back to run log</a>
+            </div>
+        </header>
+
+        <div id="app" class="report-app"></div>
+    </main>
+    <script src="{{ url_for('static', filename='report.js', v=4) }}"></script>
+</body>
+
+</html>
