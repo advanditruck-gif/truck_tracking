@@ -47,6 +47,18 @@ table.rep td.areas{white-space:normal;min-width:220px;max-width:340px}
 .rep-row>span{flex:none;color:var(--mu);font-size:13px}
 .rep-row>b{flex:1;text-align:right;font-weight:700;font-size:15px;overflow-wrap:anywhere}
 
+/* ---- captured images grouped by upload date ---- */
+.rep-images{margin-top:28px}
+.rep-images>h2{margin:0 0 14px;font:600 20px/1.2 Lora,Georgia,serif}
+.rep-image-group{margin:0 0 22px}
+.rep-image-group>h3{display:flex;align-items:center;gap:8px;margin:0 0 10px;font:600 15px/1.3 Lora,Georgia,serif}
+.rep-image-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.rep-image-card{overflow:hidden;border:1px solid var(--line);border-radius:14px;background:var(--surface);color:var(--ink);text-decoration:none}
+.rep-image-card img{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;background:var(--raised)}
+.rep-image-card>span{display:grid;gap:4px;padding:10px 12px}
+.rep-image-card b{font-size:13px}
+.rep-image-card small{color:var(--mu);font-size:12px}
+
 /* table is the desktop view; cards are the phone/tablet view */
 .rep-table-wrap{display:none}
 @media (min-width:860px){
@@ -56,4 +68,95 @@ table.rep td.areas{white-space:normal;min-width:220px;max-width:340px}
 @media (max-width:679px){
   .rep-summary{grid-template-columns:repeat(2,1fr)}
   .rep-bar{gap:12px}
+}
+
+/* ---- folder browser and database records ---- */
+main.report-main{width:min(100% - 40px,1440px);padding-top:78px}
+.report-main.report-all-records{height:100dvh;padding-bottom:0;overflow:hidden}
+.report-app{min-width:0}
+.report-main>.top{position:fixed;top:0;left:50%;z-index:30;display:grid;grid-template-columns:248px minmax(0,1fr) auto;align-items:center;width:min(100% - 40px,1440px);height:58px;margin:0;padding:8px 0;transform:translateX(-50%);background:var(--bg)}
+.report-main>.top>.brand{grid-column:1;grid-row:1}
+.report-main>.top>.rep-toolbar-heading{grid-column:2;grid-row:1;margin:0 12px 0 0}
+.report-main>.top>.top-right{grid-column:3;grid-row:1}
+.rep-layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:28px;align-items:start}
+.rep-layout.all-records{height:100%;grid-template-rows:minmax(0,1fr);align-items:stretch}
+.rep-sidebar{position:sticky;top:18px;align-self:start;display:grid;align-content:start;gap:4px;padding:12px;border:1px solid var(--line);border-radius:18px;background:rgba(17,22,33,.88)}
+.rep-sidebar-title{padding:7px 10px 10px;color:var(--mu);font:600 10px/1.2 Arial,sans-serif;letter-spacing:.14em}
+.rep-folder{display:flex;align-items:center;gap:10px;width:100%;min-height:40px;margin:0;padding:0 10px;border:1px solid transparent;border-radius:10px;background:transparent;color:var(--mu);text-align:left;font:500 13px/1.2 Arial,sans-serif}
+.rep-folder:hover{background:rgba(255,255,255,.045);color:var(--ink)}
+.rep-folder.active{border-color:rgba(232,202,120,.16);background:var(--amber-soft);color:var(--led)}
+.rep-folder.child{min-height:34px;padding-left:34px;font-size:12px}
+.rep-folder-icon{display:inline-grid;place-items:center;flex:none;width:18px;color:var(--led)}
+.rep-folder-name{flex:1}
+.rep-folder-count{color:var(--mu);font:11px/1 Arial,sans-serif}
+.rep-back-link{margin:12px 8px 4px;padding-top:12px;border-top:1px solid var(--line);color:var(--mu);font:12px/1.4 Arial,sans-serif;text-decoration:none}
+.rep-back-link:hover{color:var(--ink)}
+.rep-content{min-width:0;min-height:0}
+.rep-layout.all-records .rep-content{display:flex;flex-direction:column;overflow:hidden}
+.rep-overview{z-index:2;flex:none;margin:0 -8px 12px;padding:0 8px 10px;background:transparent}
+.rep-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:0 0 22px;padding:2px 0}
+.rep-toolbar-heading{flex:1;min-width:0}
+.rep-toolbar-heading h1{font:600 clamp(22px,3vw,30px)/1.2 Lora,Georgia,serif}
+.rep-toolbar-heading p{margin-top:3px;font-size:11px}
+.report-main>.top .rep-toolbar-heading h1{font:600 clamp(18px,2.4vw,25px)/1.1 Lora,Georgia,serif}
+.report-main>.top .rep-toolbar-heading p{margin-top:2px;font:10px/1.2 Arial,sans-serif}
+.rep-toolbar{justify-content:flex-end}
+.rep-image-toolbar-title{display:flex;align-items:center;gap:9px;margin-right:auto}
+.rep-image-toolbar-title h2{font:600 19px/1.25 Lora,Georgia,serif}
+.rep-toolbar-actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.rep-toolbar-actions label{color:var(--mu);font:600 12px/1.2 Arial,sans-serif}
+.rep-toolbar-actions input{min-height:38px;width:auto;margin:0;padding:0 10px;border:1px solid var(--line);border-radius:10px;background:var(--raised);color:var(--ink);font:14px Arial,sans-serif;color-scheme:dark}
+.rep-toolbar-actions button{width:auto;min-height:38px;margin:0;padding:0 12px;font:600 12px Arial,sans-serif}
+.rep-summary{grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-bottom:20px}
+.rep-card{min-width:0;padding:13px}
+.rep-card b{font-size:20px}
+.rep-section{margin:20px 0 24px}
+.rep-layout.all-records .rep-content>.rep-section{display:flex;flex:1;flex-direction:column;min-height:0;margin:4px 0 0}
+.rep-section-head{display:flex;align-items:center;gap:9px;margin-bottom:12px}
+.rep-section-head h2{font:600 19px/1.25 Lora,Georgia,serif}
+.rep-section-count{display:inline-grid;place-items:center;min-width:23px;height:23px;padding:0 6px;border-radius:99px;background:var(--raised);color:var(--mu);font:600 11px Arial,sans-serif}
+.rep-image-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
+.rep-record-list{display:grid;gap:10px}
+.rep-record{padding:15px 17px;border:1px solid var(--line);border-radius:14px;background:var(--surface)}
+.rep-record>header{display:flex;justify-content:space-between;gap:12px;margin-bottom:10px}
+.rep-record>header h3{font:600 14px/1.35 Arial,sans-serif}
+.rep-record>header span,.rep-record>header small{display:block;margin-top:4px;color:var(--mu);font:12px/1.3 Arial,sans-serif}
+.rep-record>header small{flex:none}
+.rep-details{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:7px 16px}
+.rep-detail{display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-bottom:1px solid var(--line);font:12px/1.4 Arial,sans-serif}
+.rep-detail>span{color:var(--mu);text-transform:capitalize}
+.rep-detail>b{overflow-wrap:anywhere;text-align:right;font-weight:600}
+.rep-record-image{display:inline-block;margin-top:10px;color:var(--led);font:600 12px Arial,sans-serif}
+.rep-export{width:auto;min-height:34px;margin:0 0 0 auto;padding:0 12px;font:600 12px Arial,sans-serif}
+.rep-table-wrap{display:block;max-height:none;overflow:auto}
+.rep-layout.all-records .rep-table-wrap{flex:1;min-height:0}
+table.rep{font-size:12px}
+table.rep th,table.rep td{padding:10px}
+@media(max-width:900px){
+  .rep-layout{grid-template-columns:180px minmax(0,1fr);gap:16px}
+  .rep-layout.all-records{height:100%}
+  .rep-summary{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .report-main>.top{grid-template-columns:196px minmax(0,1fr) auto}
+}
+@media(max-width:640px){
+  main.report-main{width:min(100% - 28px,1440px);padding-top:70px}
+  .report-main.report-all-records{height:100dvh}
+  .report-main>.top{width:min(100% - 28px,1440px);height:52px;display:flex}
+  .report-main>.top .rep-toolbar-heading{flex:1;margin:0 8px;min-width:0}
+  .rep-layout{grid-template-columns:minmax(0,1fr);gap:10px}
+  .rep-layout.all-records{grid-template-rows:auto minmax(0,1fr)}
+  .rep-sidebar{position:static;align-self:auto;display:flex;gap:5px;overflow-x:auto;padding:8px;border-radius:13px}
+  .rep-sidebar-title,.rep-back-link{display:none}
+  .rep-folder{flex:none;width:auto;min-height:36px;padding:0 10px}
+  .rep-folder.child{padding-left:10px}
+  .rep-folder-count{display:none}
+  .rep-toolbar{align-items:flex-start;flex-direction:column}
+  .rep-image-toolbar-title{margin-right:0}
+  .report-main>.top .rep-toolbar-heading h1{font-size:15px}
+  .report-main>.top .rep-toolbar-heading p{display:none}
+  .rep-toolbar-actions{width:100%}
+  .rep-toolbar-actions input{flex:1}
+  .rep-image-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .rep-detail{grid-column:1/-1}
+  .rep-layout.all-records .rep-content>.rep-section{margin-top:0}
 }

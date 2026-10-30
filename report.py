@@ -67,6 +67,18 @@ def build_reports(events):
             if place and place.casefold() not in (a.casefold() for a in areas):
                 areas.append(place)
 
+        images = [
+            {
+                "event_id": e["id"],
+                "date": (e.get("at") or "")[:10],
+                "at": e.get("at"),
+                "type": e["t"],
+                "fuel_type": _fuel_label(e["d"]) if e["t"] == "fuel" else None,
+            }
+            for e in evs
+            if e.get("id") is not None and e.get("d", {}).get("image_path")
+        ]
+
         reports.append({
             "run": rid,
             "date": (start and start["d"].get("date")) or (start and start["at"][:10]),
@@ -85,6 +97,7 @@ def build_reports(events):
             "areas_covered": areas,
             "visit_count": len(visits),
             "is_open": stop is None,
+            "images": images,
         })
 
     reports.reverse()  # most recently started run first

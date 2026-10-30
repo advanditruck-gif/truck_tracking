@@ -184,6 +184,46 @@ def api_report():
     return jsonify(reportmod.build_reports(db.all_events()))
 
 
+@app.get("/api/report/records")
+def api_report_records():
+    events = db.all_events()
+    records = []
+    for event in events:
+        data = {
+            key: value
+            for key, value in event["d"].items()
+            if key != "image_path"
+        }
+        records.append({
+            "id": event["id"],
+            "run": event["run"],
+            "type": event["t"],
+            "at": event["at"],
+            "data": data,
+            "has_image": bool(event["d"].get("image_path")),
+        })
+    return jsonify({
+        "reports": reportmod.build_reports(events),
+        "records": records,
+    })
+
+
+@app.get("/report/image/<int:event_id>")
+def report_event_image(event_id):
+    event = db.admin_event(event_id)
+    if not event or not event["d"].get("image_path"):
+        abort(404)
+    try:
+        response = redirect(supabase_storage.signed_image_url(
+            event["d"]["image_path"], expires_in=7 * 24 * 60 * 60
+        ))
+        response.headers["Cache-Control"] = "private, max-age=86400"
+        return response
+    except Exception as error:
+        app.logger.error("Could not create report image URL: %s", error)
+        abort(502, description="Could not retrieve this image from Supabase Storage.")
+
+
 @app.get("/api/ping")
 def api_ping():
     """Open /api/ping in the browser to confirm which code is running."""

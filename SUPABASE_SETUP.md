@@ -33,6 +33,15 @@ The `SUPABASE_KEY` publishable key is not used by this server-side integration.
 Do not expose a secret key or `DATABASE_URL` in frontend code or commit either
 value to Git.
 
+Newly captured images are stored in the private bucket and shown in the Reports
+page, grouped by the date they were recorded. Older events without an
+`image_path` have no stored original image to display. Report image links and
+newly uploaded images are privately cached for one day to make repeat viewing
+faster; image signed links remain valid for seven days. The Reports page lists
+ODO photos, petrol and diesel bills, location photos, and complete event text
+from the database. It opens to all dates; select a date to view that day's
+records.
+
 ## Migrate existing event records
 
 Back up the SQLite database first. Set `DATABASE_URL` in the local, ignored

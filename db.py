@@ -59,8 +59,11 @@ def add_event(run_id, t, at, data):
 def all_events():
     with conn() as c:
         table = "public.events" if DATABASE_URL else "events"
-        rows = c.execute(f"SELECT run_id,t,at,data FROM {table} ORDER BY id").fetchall()
-    return [{"run": r[0], "t": r[1], "at": r[2], "d": _decode_data(r[3])} for r in rows]
+        rows = c.execute(f"SELECT id,run_id,t,at,data FROM {table} ORDER BY id").fetchall()
+    return [
+        {"id": r[0], "run": r[1], "t": r[2], "at": r[3], "d": _decode_data(r[4])}
+        for r in rows
+    ]
 
 
 def admin_events():

@@ -19,7 +19,7 @@ def _settings():
     return config.SUPABASE_URL, config.SUPABASE_SERVICE_ROLE_KEY
 
 
-def _request(method, endpoint, body=None, content_type=None):
+def _request(method, endpoint, body=None, content_type=None, cache_control=None):
     base_url, key = _settings()
     headers = {
         "apikey": key,
@@ -28,6 +28,8 @@ def _request(method, endpoint, body=None, content_type=None):
     data = body
     if content_type:
         headers["Content-Type"] = content_type
+    if cache_control:
+        headers["Cache-Control"] = cache_control
     elif body is not None:
         headers["Content-Type"] = "application/json"
         data = json.dumps(body).encode("utf-8")
@@ -51,6 +53,7 @@ def upload_image(path, image_bytes, content_type):
         f"/storage/v1/object/{bucket}/{object_path}",
         image_bytes,
         content_type=content_type,
+        cache_control="max-age=86400",
     )
 
 
@@ -76,4 +79,11 @@ def signed_image_url(path, expires_in=300):
         raise RuntimeError("Supabase Storage did not return a signed image URL.")
     if signed_path.startswith("http://") or signed_path.startswith("https://"):
         return signed_path
-    return config.SUPABASE_URL + signed_path
+    base_url = config.SUPABASE_URL.rstrip("/")
+    if signed_path.startswith("/storage/v1/"):
+        return base_url + signed_path
+    if signed_path.startswith("/object/"):
+        return base_url + "/storage/v1" + signed_path
+    if signed_path.startswith("object/"):
+        return base_url + "/storage/v1/" + signed_path
+    raise RuntimeError("Supabase Storage returned an invalid signed image path.")
