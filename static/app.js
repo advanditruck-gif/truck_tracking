@@ -158,39 +158,7 @@ function review(title, kind, vals, th, note) {
             }
             ins[k] = i;
 
-            if (kind === 'geo' && k === 'gps') {
-                const wrap = document.createElement('div');
-                wrap.className = 'geo-gps-field-wrap';
-                wrap.append(i);
-                const refBtn = document.createElement('button');
-                refBtn.type = 'button';
-                refBtn.className = 'g geo-refresh-gps-btn';
-                refBtn.innerHTML = '📍 Get GPS';
-                refBtn.onclick = async () => {
-                    refBtn.disabled = true;
-                    refBtn.textContent = 'Locating…';
-                    const pos = await gpsNow(true);
-                    refBtn.disabled = false;
-                    refBtn.innerHTML = '📍 Get GPS';
-                    if (pos.c) {
-                        i.value = pos.c;
-                        showToast('GPS position acquired: ' + pos.c);
-                        const addr = await reverseGeocode(pos.c);
-                        if (addr && !addr._error) {
-                            if (ins.road && !ins.road.value) ins.road.value = addr.road || '';
-                            if (ins.location) ins.location.value = addr.location || '';
-                            if (ins.district) ins.district.value = addr.district || '';
-                            if (ins.state) ins.state.value = addr.state || '';
-                        }
-                    } else {
-                        alert('GPS Notice: ' + (pos.err || 'Position unavailable. Make sure Location is enabled on your phone.'));
-                    }
-                };
-                wrap.append(refBtn);
-                l.append(wrap);
-            } else {
-                l.append(i);
-            }
+            l.append(i);
 
             if (kind === 'cluster' && k === 'km') {
                 if (!validOdometer(i.value)) {
