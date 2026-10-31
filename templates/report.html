@@ -14,12 +14,16 @@
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600;700&display=swap">
     </noscript>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=13) }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='report.css', v=14) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='report.css', v=15) }}">
 </head>
 
 <body>
     <main class="report-main">
         <header class="top">
+            <button class="rep-folder-toggle" type="button" aria-label="Open folders" aria-expanded="false"
+                aria-controls="report-folders">
+                <span></span><span></span><span></span>
+            </button>
             <a class="brand" href="/" aria-label="Ad Vandi run log home">
                 <img class="brand-logo" src="{{ url_for('static', filename='ad-vandi-logo.png', v=1) }}" alt="Ad Vandi run log">
             </a>
@@ -30,7 +34,7 @@
 
         <div id="app" class="report-app"></div>
     </main>
-    <script src="{{ url_for('static', filename='report.js', v=15) }}"></script>
+    <script src="{{ url_for('static', filename='report.js', v=16) }}"></script>
 </body>
 
 </html>

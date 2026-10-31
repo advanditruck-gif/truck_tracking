@@ -93,7 +93,7 @@ function folderCount(folderId, records) {
 }
 
 function renderSidebar(records) {
-    return '<aside class="rep-sidebar" aria-label="Record folders">' +
+    return '<aside class="rep-sidebar" id="report-folders" aria-label="Record folders">' +
         '<div class="rep-sidebar-title">FOLDERS</div>' +
         folders.map(folder => {
             const count = folderCount(folder.id, records);
@@ -245,9 +245,30 @@ function draw() {
     header.querySelector('.rep-toolbar-heading')?.remove();
     const pageHeading = document.querySelector('.rep-toolbar-heading');
     header.appendChild(pageHeading);
+    const folderToggle = header.querySelector('.rep-folder-toggle');
+    const closeFolderMenu = () => {
+        document.body.classList.remove('report-folders-open');
+        folderToggle.setAttribute('aria-expanded', 'false');
+        folderToggle.setAttribute('aria-label', 'Open folders');
+    };
+    folderToggle.onclick = () => {
+        const isOpen = document.body.classList.toggle('report-folders-open');
+        folderToggle.setAttribute('aria-expanded', String(isOpen));
+        folderToggle.setAttribute('aria-label', isOpen ? 'Close folders' : 'Open folders');
+    };
+    document.onclick = event => {
+        if (document.body.classList.contains('report-folders-open') &&
+            !event.target.closest('.rep-sidebar, .rep-folder-toggle')) {
+            closeFolderMenu();
+        }
+    };
     document.querySelectorAll('[data-folder]').forEach(button => {
-        button.onclick = () => { selectedFolder = button.dataset.folder; draw() };
+        button.onclick = () => { selectedFolder = button.dataset.folder; closeFolderMenu(); draw() };
     });
+    document.onkeydown = event => {
+        if (event.key === 'Escape') closeFolderMenu();
+    };
+    if (!window.matchMedia('(max-width: 640px)').matches) closeFolderMenu();
     $('#rep-date').onchange = event => { dateFilter = event.target.value; draw() };
     const clear = $('#rep-clear');
     if (clear) clear.onclick = () => { dateFilter = ''; draw() };

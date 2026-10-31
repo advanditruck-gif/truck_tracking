@@ -134,7 +134,7 @@ def admin_delete_event(event_id):
 
 
 @app.get("/admin/image/<int:event_id>")
-def admin_export(event_id):
+def admin_event_image(event_id):
     if not _admin_key_is_configured():
         return render_template("admin.html", key_configured=False), 503
     auth_redirect = _require_admin()
