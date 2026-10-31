@@ -145,16 +145,31 @@ function reviewVisit(vals) {
     })
 }
 async function sendEventPayload(p) {
-    const r = await fetch('/api/events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p) });
-    return r.ok;
+    try {
+        const r = await fetch('/api/events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p) });
+        if (r.status === 409) {
+            const data = await r.json().catch(() => ({}));
+            return { ok: false, duplicate: true, error: data.error || 'Duplicate receipt' };
+        }
+        return { ok: r.ok };
+    } catch (e) {
+        return { ok: false, networkError: true };
+    }
 }
 async function syncPendingEvents() {
     if (!navigator.onLine || !S.pending || !S.pending.length) return;
     const queue = S.pending.slice(), remaining = [];
     for (const item of queue) {
         try {
-            const ok = await sendEventPayload(item);
-            if (!ok) remaining.push(item);
+            const res = await sendEventPayload(item);
+            if (res.duplicate) {
+                // Drop duplicate permanently so it is NOT saved
+                alert('⚠️ Duplicate Receipt Alert!\n\n' + (res.error || 'A queued fuel bill with a duplicate receipt number was rejected by the server and removed.'));
+                const idx = (S.ev || []).findIndex(e => e.at === item.at);
+                if (idx !== -1) { S.ev.splice(idx, 1); keep(); render(); }
+            } else if (!res.ok) {
+                remaining.push(item);
+            }
         } catch (e) {
             remaining.push(item);
         }
@@ -171,8 +186,19 @@ function add(t, d, th) {
             S.pending = S.pending || []; S.pending.push(payload); keep();
             showToast('Saved offline. Will sync when reconnected.');
         } else {
-            sendEventPayload(payload).then(ok => {
-                if (!ok) { S.pending = S.pending || []; S.pending.push(payload); keep() }
+            sendEventPayload(payload).then(res => {
+                if (res.duplicate) {
+                    // Duplicate rejected by server: REMOVE from S.ev so it is NOT saved!
+                    const idx = (S.ev || []).findIndex(evItem => evItem.at === payload.at);
+                    if (idx !== -1) {
+                        S.ev.splice(idx, 1);
+                        keep();
+                        render();
+                    }
+                    alert('⚠️ Duplicate Receipt Alert!\n\n' + (res.error || 'This receipt number has already been recorded and cannot be saved.'));
+                } else if (!res.ok) {
+                    S.pending = S.pending || []; S.pending.push(payload); keep();
+                }
             }).catch(() => {
                 S.pending = S.pending || []; S.pending.push(payload); keep();
             });
@@ -208,14 +234,57 @@ async function loc(t) {
 function fuel() {
     const m = modal('<h3>Choose fuel type</h3><p class="mu sub">Pick what you are refuelling.</p><button class="fuel-option" id="p"><span class="fuel-icon">P</span><span><b>Petrol</b><small>Generator, ₹1000 preset</small></span><span class="fuel-arrow">›</span></button><button class="fuel-option" id="d"><span class="fuel-icon">D</span><span><b>Diesel</b><small>Vehicle, ₹1500 preset</small></span><span class="fuel-arrow">›</span></button><button class="g" id="x">Cancel</button>', 'md-choice');
     const go = async (type, preset) => {
-        m.remove(); const r = await snap('fuel', 'Upload fuel bill', {}); if (!r) return;
-        const rc = r.o.receipt_no; if (!rc) return alert('Receipt/voucher number is required.');
-        if (S.ev.some(e => e.t === 'fuel' && e.d.receipt_no === rc)) return alert('Duplicate bill: receipt ' + rc + ' was already uploaded.');
+        m.remove();
+        const r = await snap('fuel', 'Upload fuel bill', {});
+        if (!r) return;
+        const rc = String(r.o.receipt_no || '').trim();
+        if (!rc) return alert('Receipt/voucher number is required.');
+
+        // Normalize receipt for comparison (trimmed and case-insensitive)
+        const norm = s => String(s || '').trim().toLowerCase();
+
+        // 1. Check current local run events (prevents saving duplicate between Petrol and Diesel)
+        const dupLocal = (S.ev || []).find(e => e.t === 'fuel' && norm(e.d && e.d.receipt_no) === norm(rc));
+        if (dupLocal) {
+            const existingType = (dupLocal.d && (dupLocal.d.fuel_for || dupLocal.d.product)) || 'fuel';
+            alert('⚠️ Duplicate Receipt Alert!\n\nReceipt #' + rc + ' has already been used for ' + existingType + '.\nYou cannot save the same receipt number for Petrol and Diesel.');
+            return;
+        }
+
+        // 2. Check pending offline queue
+        const dupPending = (S.pending || []).find(e => e.t === 'fuel' && norm(e.d && e.d.receipt_no) === norm(rc));
+        if (dupPending) {
+            const existingType = (dupPending.d && (dupPending.d.fuel_for || dupPending.d.product)) || 'fuel';
+            alert('⚠️ Duplicate Receipt Alert!\n\nReceipt #' + rc + ' is already recorded in the queue for ' + existingType + '.\nYou cannot save the same receipt number for Petrol and Diesel.');
+            return;
+        }
+
+        // 3. Check database records if online
+        if (navigator.onLine) {
+            try {
+                const res = await fetch('/api/check-receipt?' + new URLSearchParams({ receipt: rc }));
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.exists) {
+                        alert('⚠️ Duplicate Receipt Alert!\n\nReceipt #' + rc + ' has already been recorded in the database for ' + (data.fuel_for || 'fuel') + '.\nYou cannot save the same receipt number for Petrol and Diesel.');
+                        return;
+                    }
+                }
+            } catch (err) {
+                console.warn('Receipt check error:', err);
+            }
+        }
+
         if (!r.o.product) r.o.product = type.split(' - ')[0];
-        r.o.fuel_for = type; r.o.preset = preset; r.o.flag = Number(r.o.amount) !== preset ? 'Amount differs from ₹' + preset : '';
-        add('fuel', r.o, r.th)
+        r.o.receipt_no = rc;
+        r.o.fuel_for = type;
+        r.o.preset = preset;
+        r.o.flag = Number(r.o.amount) !== preset ? 'Amount differs from ₹' + preset : '';
+        add('fuel', r.o, r.th);
     };
-    m.querySelector('#p').onclick = () => go('Petrol - Generator', 1000); m.querySelector('#d').onclick = () => go('Diesel - Vehicle', 1500); m.querySelector('#x').onclick = () => m.remove()
+    m.querySelector('#p').onclick = () => go('Petrol - Generator', 1000);
+    m.querySelector('#d').onclick = () => go('Diesel - Vehicle', 1500);
+    m.querySelector('#x').onclick = () => m.remove();
 }
 async function stop() {
     if (!confirm('Stop today’s run?')) return; const r = await snap('cluster', 'Upload cluster image'); if (!r) return;
@@ -354,19 +423,57 @@ updateNetworkBadge();
 
 // PWA Install prompt handling
 let deferredInstall = null;
+const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+const isIos = /iphone|ipad|ipod/.test(window.navigator.userAgent.toLowerCase()) && !isStandalone;
+
+function showIosInstallPrompt() {
+    const existing = $('.ios-sheet-backdrop');
+    if (existing) return;
+    const sheet = document.createElement('div');
+    sheet.className = 'ios-sheet-backdrop';
+    sheet.innerHTML = `
+        <div class="ios-sheet">
+            <h3>Install Ad Vandi</h3>
+            <p class="mu">Install on your Home Screen for full-screen mode, alerts, and instant access.</p>
+            <ol>
+                <li>Tap the <strong>Share</strong> button <svg style="vertical-align:middle;margin:0 2px" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="15" x2="12" y2="15"/></svg> at the bottom of Safari</li>
+                <li>Scroll down and tap <strong>Add to Home Screen</strong> <span style="font-size:16px">➕</span></li>
+                <li>Tap <strong>Add</strong> at top right to finish</li>
+            </ol>
+            <button id="close-ios-sheet" class="g" style="width:100%">Got it</button>
+        </div>
+    `;
+    sheet.querySelector('#close-ios-sheet').onclick = () => sheet.remove();
+    sheet.onclick = e => { if (e.target === sheet) sheet.remove(); };
+    document.body.appendChild(sheet);
+}
+
+const installBtn = $('#install-btn');
+if (installBtn && !isStandalone) {
+    if (isIos) {
+        installBtn.hidden = false;
+        installBtn.onclick = () => showIosInstallPrompt();
+    }
+}
+
 window.addEventListener('beforeinstallprompt', e => {
     e.preventDefault();
     deferredInstall = e;
     const btn = $('#install-btn');
-    if (btn) {
+    if (btn && !isStandalone) {
         btn.hidden = false;
         btn.onclick = async () => {
-            if (!deferredInstall) return;
-            btn.hidden = true;
-            deferredInstall.prompt();
-            const res = await deferredInstall.userChoice;
-            if (res && res.outcome === 'accepted') showToast('Installing Ad Vandi...');
-            deferredInstall = null;
+            if (deferredInstall) {
+                btn.hidden = true;
+                deferredInstall.prompt();
+                const res = await deferredInstall.userChoice;
+                if (res && res.outcome === 'accepted') showToast('Installing Ad Vandi...');
+                deferredInstall = null;
+            } else if (isIos) {
+                showIosInstallPrompt();
+            } else {
+                showToast('Use browser menu (⋮) -> "Install App"');
+            }
         };
     }
 });

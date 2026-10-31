@@ -56,9 +56,49 @@ def conn():
         c.close()
 
 
+def get_fuel_receipt(receipt_no):
+    """Check if a fuel receipt already exists (case-insensitive and trimmed)."""
+    if not receipt_no:
+        return None
+    r = str(receipt_no).strip()
+    if not r:
+        return None
+    with conn() as c:
+        table = "public.events" if DATABASE_URL else "events"
+        if DATABASE_URL:
+            row = c.execute(
+                f"SELECT id, run_id, t, at, data, receipt FROM {table} WHERE t = 'fuel' AND UPPER(TRIM(receipt)) = UPPER(%s) LIMIT 1",
+                (r,),
+            ).fetchone()
+        else:
+            row = c.execute(
+                f"SELECT id, run_id, t, at, data, receipt FROM {table} WHERE t = 'fuel' AND UPPER(TRIM(receipt)) = UPPER(?) LIMIT 1",
+                (r,),
+            ).fetchone()
+    if not row:
+        return None
+    data = _decode_data(row[4])
+    return {
+        "id": row[0],
+        "run_id": row[1],
+        "t": row[2],
+        "at": row[3],
+        "data": data,
+        "receipt": row[5],
+    }
+
+
 def add_event(run_id, t, at, data):
     """Raises a database unique-constraint error if a fuel receipt repeats."""
     receipt = (data or {}).get("receipt_no") if t == "fuel" else None
+    if receipt:
+        receipt = str(receipt).strip()
+        if not receipt:
+            receipt = None
+        else:
+            existing = get_fuel_receipt(receipt)
+            if existing:
+                raise DuplicateReceiptError(f"Fuel receipt {receipt} already exists")
     with conn() as c:
         if DATABASE_URL:
             import psycopg

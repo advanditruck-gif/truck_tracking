@@ -1,5 +1,5 @@
 /* Ad Vandi Service Worker (PWA) */
-const CACHE_NAME = 'advandi-v1.3';
+const CACHE_NAME = 'advandi-v1.5';
 
 const PRECACHE_ASSETS = [
     '/',
@@ -11,6 +11,7 @@ const PRECACHE_ASSETS = [
     '/static/icons/icon.svg',
     '/static/icons/icon-192.png',
     '/static/icons/icon-512.png',
+    '/static/icons/icon-maskable-512.png',
     '/static/icons/apple-touch-icon.png',
     '/static/icons/favicon.png'
 ];
@@ -75,9 +76,9 @@ self.addEventListener('fetch', event => {
                     return res;
                 })
                 .catch(async () => {
-                    const cached = await caches.match(req);
+                    const cached = await caches.match(req, { ignoreSearch: true });
                     if (cached) return cached;
-                    const shell = await caches.match('/');
+                    const shell = await caches.match('/', { ignoreSearch: true });
                     if (shell) return shell;
                     return new Response(
                         '<!DOCTYPE html><html><body style="background:#080c16;color:#e8ca78;font-family:sans-serif;padding:2rem;text-align:center"><h2>Ad Vandi is Offline</h2><p>Please check your connection and reopen the app.</p></body></html>',
@@ -103,7 +104,7 @@ self.addEventListener('fetch', event => {
 
     // 3. Static assets & Google Fonts -> Stale-While-Revalidate
     event.respondWith(
-        caches.match(req).then(cached => {
+        caches.match(req, { ignoreSearch: true }).then(cached => {
             const networkFetch = fetch(req)
                 .then(response => {
                     if (response && response.status === 200 && (response.type === 'basic' || response.type === 'cors')) {

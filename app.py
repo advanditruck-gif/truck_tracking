@@ -72,6 +72,7 @@ def service_worker():
 
 
 @app.get("/manifest.webmanifest")
+@app.get("/manifest.json")
 def manifest():
     response = make_response(send_from_directory("static", "manifest.webmanifest"))
     response.headers["Content-Type"] = "application/manifest+json"
@@ -319,6 +320,23 @@ def api_extract():
     return jsonify(extract(kind, img.read()))
 
 
+@app.get("/api/check-receipt")
+def api_check_receipt():
+    receipt = request.args.get("receipt", "").strip()
+    if not receipt:
+        return jsonify({"exists": False})
+    existing = db.get_fuel_receipt(receipt)
+    if existing:
+        d = existing.get("data") or {}
+        return jsonify({
+            "exists": True,
+            "receipt_no": receipt,
+            "fuel_for": d.get("fuel_for") or d.get("product") or "fuel",
+            "at": existing.get("at"),
+        })
+    return jsonify({"exists": False})
+
+
 @app.post("/api/events")
 def api_add():
     image = request.files.get("image")
@@ -329,6 +347,18 @@ def api_add():
             return jsonify({"error": "A valid event payload is required."}), 400
         if not isinstance(j, dict) or not isinstance(j.get("d"), dict):
             return jsonify({"error": "Event data must be a JSON object."}), 400
+        if j.get("t") == "fuel":
+            receipt_no = (j.get("d") or {}).get("receipt_no")
+            if receipt_no:
+                existing = db.get_fuel_receipt(receipt_no)
+                if existing:
+                    existing_fuel = (existing.get("data") or {}).get("fuel_for") or (existing.get("data") or {}).get("product") or "fuel"
+                    return jsonify({
+                        "error": f"Duplicate receipt: Receipt #{receipt_no} has already been recorded for {existing_fuel}.",
+                        "code": "DUPLICATE_RECEIPT",
+                        "receipt_no": receipt_no,
+                        "existing_fuel": existing_fuel,
+                    }), 409
         if image.mimetype != "image/jpeg":
             return jsonify({"error": "Only JPEG images are accepted."}), 415
         image_bytes = image.read()
@@ -346,6 +376,18 @@ def api_add():
         j = request.get_json(force=True)
         if not isinstance(j, dict) or not isinstance(j.get("d"), dict):
             return jsonify({"error": "Event data must be a JSON object."}), 400
+        if j.get("t") == "fuel":
+            receipt_no = (j.get("d") or {}).get("receipt_no")
+            if receipt_no:
+                existing = db.get_fuel_receipt(receipt_no)
+                if existing:
+                    existing_fuel = (existing.get("data") or {}).get("fuel_for") or (existing.get("data") or {}).get("product") or "fuel"
+                    return jsonify({
+                        "error": f"Duplicate receipt: Receipt #{receipt_no} has already been recorded for {existing_fuel}.",
+                        "code": "DUPLICATE_RECEIPT",
+                        "receipt_no": receipt_no,
+                        "existing_fuel": existing_fuel,
+                    }), 409
     j["d"].pop("image_path", None)
     if image:
         j["d"]["image_path"] = image_path
@@ -362,7 +404,10 @@ def api_add():
                 supabase_storage.delete_image(image_path)
             except Exception:
                 pass
-        return jsonify({"error": "duplicate receipt"}), 409
+        return jsonify({
+            "error": "Duplicate receipt: A bill with this receipt number has already been recorded.",
+            "code": "DUPLICATE_RECEIPT",
+        }), 409
     return jsonify({"ok": True, "id": event_id})
 
 
