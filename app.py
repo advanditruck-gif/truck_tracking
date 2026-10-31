@@ -5,15 +5,17 @@ Run:  pip install -r requirements.txt
       Phone (HTTPS):  pip install pyopenssl, set HTTPS=1, then python app.py
 """
 import csv, hmac, io, json, os, secrets
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
-from flask import Flask, abort, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, abort, jsonify, make_response, redirect, render_template, request, send_from_directory, session, url_for
 import config, db
 import extractor
 import report as reportmod
 import supabase_storage
+import pwa_assets
 from extractor import extract
 
 app = Flask(__name__)
@@ -58,6 +60,35 @@ if config.ENGINE == "easyocr" and getattr(config, "HAS_EASYOCR", False):
 @app.get("/")
 def index():
     return render_template("index.html")
+
+
+@app.get("/sw.js")
+def service_worker():
+    response = make_response(send_from_directory("static", "sw.js"))
+    response.headers["Content-Type"] = "application/javascript"
+    response.headers["Service-Worker-Allowed"] = "/"
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return response
+
+
+@app.get("/manifest.webmanifest")
+def manifest():
+    response = make_response(send_from_directory("static", "manifest.webmanifest"))
+    response.headers["Content-Type"] = "application/manifest+json"
+    response.headers["Cache-Control"] = "public, max-age=3600"
+    return response
+
+
+@app.get("/favicon.ico")
+def favicon():
+    pwa_assets.ensure_pwa_icons()
+    return send_from_directory(os.path.join("static", "icons"), "favicon.png", mimetype="image/png")
+
+
+@app.get("/static/icons/<path:filename>")
+def static_icons(filename):
+    pwa_assets.ensure_pwa_icons()
+    return send_from_directory(os.path.join("static", "icons"), filename)
 
 
 @app.get("/report")
@@ -318,6 +349,11 @@ def api_add():
     j["d"].pop("image_path", None)
     if image:
         j["d"]["image_path"] = image_path
+    if j.get("token") and j.get("run"):   # remember which phone is doing this run (for closed-app alerts)
+        try:
+            db.link_run_token(j["run"], str(j["token"]))
+        except Exception as error:
+            app.logger.warning("Could not save the phone token: %s", error)
     try:
         event_id = db.add_event(j.get("run"), j.get("t"), j.get("at"), j.get("d"))
     except db.DuplicateReceiptError:
@@ -333,6 +369,127 @@ def api_add():
 @app.get("/api/events")
 def api_list():
     return jsonify(db.all_events())
+
+
+# ---------- closed-app alerts (Firebase push) ----------
+CRON_KEY = os.getenv("CRON_KEY", "")                          # secret used by the scheduler and the test address
+LATE_MIN = int(os.getenv("LATE_MINUTES", "30"))               # the photo is late after this many minutes
+REPEAT_MIN = int(os.getenv("ALERT_REPEAT_MINUTES", "3"))      # repeat the alert this often while it is late
+GIVE_UP_HOURS = int(os.getenv("ALERT_GIVE_UP_HOURS", "6"))    # stop alerting a run that was never stopped
+_fcm = None
+
+
+def _messaging():
+    """Start Firebase on first use. The key is env FIREBASE_CREDENTIALS (JSON text) or a Render secret file."""
+    global _fcm
+    if _fcm is not None:
+        return _fcm
+    import firebase_admin
+    from firebase_admin import credentials, messaging
+    raw = os.getenv("FIREBASE_CREDENTIALS", "").strip()
+    path = os.getenv("FIREBASE_KEY_FILE", "/etc/secrets/firebase-key.json")
+    if raw:
+        cred = credentials.Certificate(json.loads(raw))
+    elif os.path.exists(path):
+        cred = credentials.Certificate(path)
+    else:
+        raise RuntimeError("Firebase key not found. Add the secret file firebase-key.json on Render.")
+    firebase_admin.initialize_app(cred)
+    _fcm = messaging
+    return _fcm
+
+
+def send_push(tokens, title, body):
+    """Send the alert to these phones. Returns how many Firebase accepted."""
+    if not tokens:
+        return 0
+    m = _messaging()
+    message = m.MulticastMessage(
+        tokens=tokens,
+        notification=m.Notification(title=title, body=body),
+        android=m.AndroidConfig(
+            priority="high", ttl=600,
+            notification=m.AndroidNotification(channel_id="alerts_v1", sound="alert", priority="max"),
+        ),
+    )
+    result = m.send_each_for_multicast(message)
+    dead = tuple(c for c in (getattr(m, "UnregisteredError", None), getattr(m, "SenderIdMismatchError", None)) if c)
+    gone = [t for t, r in zip(tokens, result.responses) if not r.success and dead and isinstance(r.exception, dead)]
+    if gone:
+        db.delete_tokens(gone)   # app was uninstalled: forget that phone
+    for r in result.responses:
+        if not r.success:
+            print("push failed:", repr(r.exception))
+    return result.success_count
+
+
+def _when(text):
+    t = datetime.fromisoformat(str(text).replace("Z", "+00:00"))
+    return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+
+
+def check_late():
+    """Alert only for runs whose latest location photo is more than LATE_MIN minutes old."""
+    now = datetime.now(timezone.utc)
+    sent, late_runs = 0, []
+    for run_id, last_at in db.active_run_locations():
+        try:
+            late_by = now - _when(last_at) - timedelta(minutes=LATE_MIN)
+        except ValueError:
+            continue
+        if late_by < timedelta(0) or late_by > timedelta(hours=GIVE_UP_HOURS):
+            continue                                    # on time, or the run was abandoned
+        previous = db.last_alert(run_id)
+        if previous and now - _when(previous) < timedelta(minutes=REPEAT_MIN):
+            continue                                    # alerted a moment ago
+        token = db.run_token(run_id)
+        tokens = [token] if token else db.all_tokens()  # phone unknown: tell everyone rather than miss it
+        minutes = int(late_by.total_seconds() // 60)
+        n = send_push(tokens, "UPLOAD CURRENT LOCATION IMAGE",
+                      "Location photo is " + (str(minutes) + " min late" if minutes else "due now"))
+        db.set_last_alert(run_id, now.isoformat())
+        sent += n
+        late_runs.append({"run": run_id, "late_min": minutes, "sent": n})
+    return {"checked_at": now.isoformat(), "alerts_sent": sent, "late_runs": late_runs}
+
+
+def _cron_allowed():
+    return bool(CRON_KEY) and hmac.compare_digest(request.args.get("key", ""), CRON_KEY)
+
+
+@app.post("/api/push-token")
+def api_push_token():
+    token = (request.get_json(force=True, silent=True) or {}).get("token", "")
+    if not isinstance(token, str) or len(token) < 20:
+        return jsonify({"error": "bad token"}), 400
+    db.save_token(token)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/cron/check-late", methods=["GET", "POST"])
+def api_check_late():
+    """A scheduler calls this every minute:  /api/cron/check-late?key=YOUR_CRON_KEY"""
+    if not _cron_allowed():
+        return jsonify({"error": "forbidden"}), 403
+    try:
+        return jsonify(check_late())
+    except Exception as error:
+        app.logger.error("check_late failed: %r", error)
+        return jsonify({"error": str(error)[:300]}), 500
+
+
+@app.route("/api/push-test", methods=["GET", "POST"])
+def api_push_test():
+    """Open  /api/push-test?key=YOUR_CRON_KEY  to ring every registered phone once."""
+    if not _cron_allowed():
+        return jsonify({"error": "forbidden"}), 403
+    tokens = db.all_tokens()
+    try:
+        n = send_push(tokens, "TEST ALERT", "If you hear your alert sound, closed-app alerts work.")
+    except Exception as error:
+        app.logger.error("push test failed: %r", error)
+        return jsonify({"error": str(error)[:300], "phones": len(tokens)}), 500
+    return jsonify({"phones": len(tokens), "delivered": n})
 
 
 if __name__ == "__main__":

@@ -4,3 +4,4 @@ python-dotenv>=1.0.0
 gunicorn
 pywebpush
 psycopg[binary]>=3.2
+firebase-admin

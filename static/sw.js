@@ -1,5 +1,5 @@
 /* Ad Vandi Service Worker (PWA) */
-const CACHE_NAME = 'advandi-v1.2';
+const CACHE_NAME = 'advandi-v1.3';
 
 const PRECACHE_ASSETS = [
     '/',
