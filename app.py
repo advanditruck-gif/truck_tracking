@@ -380,7 +380,7 @@ def api_add():
                         "receipt_no": receipt_no,
                         "existing_fuel": existing_fuel,
                     }), 409
-        if image.mimetype != "image/jpeg":
+        if image.mimetype not in ("image/jpeg", "image/jpg", "image/pjpeg"):
             return jsonify({"error": "Only JPEG images are accepted."}), 415
         image_bytes = image.read()
         if not image_bytes.startswith(b"\xff\xd8\xff"):

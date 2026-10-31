@@ -266,67 +266,47 @@ function reviewVisit(vals) {
         };
     })
 }
-async function sendEventPayload(p) {
+async function add(t, d, th, image) {
+    const event = { run: S.run && S.run.id, t, at: new Date().toISOString(), d, token: window.__pushToken || null };
+    const done = busy('Saving to Supabase…');
     try {
-        const r = await fetch('/api/events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p) });
-        if (r.status === 409) {
-            const data = await r.json().catch(() => ({}));
-            return { ok: false, duplicate: true, error: data.error || 'Duplicate receipt' };
-        }
-        return { ok: r.ok };
-    } catch (e) {
-        return { ok: false, networkError: true };
-    }
-}
-async function syncPendingEvents() {
-    if (!navigator.onLine || !S.pending || !S.pending.length) return;
-    const queue = S.pending.slice(), remaining = [];
-    for (const item of queue) {
-        try {
-            const res = await sendEventPayload(item);
-            if (res.duplicate) {
-                // Drop duplicate permanently so it is NOT saved
-                alert('⚠️ Duplicate Receipt Alert!\n\n' + (res.error || 'A queued fuel bill with a duplicate receipt number was rejected by the server and removed.'));
-                const idx = (S.ev || []).findIndex(e => e.at === item.at);
-                if (idx !== -1) { S.ev.splice(idx, 1); keep(); render(); }
-            } else if (!res.ok) {
-                remaining.push(item);
-            }
-        } catch (e) {
-            remaining.push(item);
-        }
-    }
-    const synced = S.pending.length - remaining.length;
-    S.pending = remaining; keep();
-    if (synced > 0) showToast('Synced ' + synced + ' offline event' + (synced > 1 ? 's' : '') + ' to server.');
-}
-function add(t, d, th) {
-    const e = { t, at: new Date().toISOString(), d, th }; S.ev.push(e); keep();
-    const payload = { run: S.run && S.run.id, t, at: e.at, d, token: window.__pushToken || null };
-    if (!sample) {
-        if (!navigator.onLine) {
-            S.pending = S.pending || []; S.pending.push(payload); keep();
-            showToast('Saved offline. Will sync when reconnected.');
+        let options;
+        if (image) {
+            const body = new FormData();
+            body.append('event', JSON.stringify(event));
+            body.append('image', image, 'capture.jpg');
+            options = { method: 'POST', body };
         } else {
-            sendEventPayload(payload).then(res => {
-                if (res.duplicate) {
-                    // Duplicate rejected by server: REMOVE from S.ev so it is NOT saved!
-                    const idx = (S.ev || []).findIndex(evItem => evItem.at === payload.at);
-                    if (idx !== -1) {
-                        S.ev.splice(idx, 1);
-                        keep();
-                        render();
-                    }
-                    alert('⚠️ Duplicate Receipt Alert!\n\n' + (res.error || 'This receipt number has already been recorded and cannot be saved.'));
-                } else if (!res.ok) {
-                    S.pending = S.pending || []; S.pending.push(payload); keep();
-                }
-            }).catch(() => {
-                S.pending = S.pending || []; S.pending.push(payload); keep();
-            });
+            options = {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(event)
+            };
         }
+        const response = await fetch('/api/events', options);
+        done();
+        const result = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+            if (response.status === 409) {
+                alert('⚠️ Duplicate Receipt Alert!\n\n' + (result.error || 'This receipt number has already been recorded in Supabase.'));
+                return false;
+            }
+            throw new Error(result.error || ('Server returned error ' + response.status));
+        }
+
+        // Successfully saved directly in Supabase! Update active view
+        const e = { t, at: event.at, d, th };
+        S.ev.push(e);
+        keep();
+        render();
+        return true;
+    } catch (error) {
+        done();
+        console.error('Save to Supabase failed:', error);
+        alert('❌ Failed to save to Supabase:\n\n' + error.message + '\n\nThe record was NOT saved locally. Please check your internet connection and try again.');
+        return false;
     }
-    render();
 }
 async function snap(kind, title, extra = {}) {
     const gp = kind === 'geo' ? gpsNow() : null;
@@ -357,18 +337,30 @@ async function snap(kind, title, extra = {}) {
         v.time = v.time || capturedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
     }
     const err = d && d._error; if (d) delete d._error; const hasValues = FIELDS[kind].some(k => d && d[k] != null && String(d[k]).trim() !== ''); const note = kind === 'geo' ? 'Address lookup uses phone GPS via OpenStreetMap (© OpenStreetMap contributors).' + (geoError ? ' ' + geoError : '') : (err ? 'Reading failed: ' + err : (!hasValues ? 'No values returned. Server replied: ' + JSON.stringify(d) + ' (open /api/ping to check the server version)' : (kind === 'cluster' && !validOdometer(v.km) ? 'The odometer was not read. Cancel and retake the photo.' : '')));
-    const o = await review(title, kind, v, URL.createObjectURL(b), note); return o && { o, th }
+    const o = await review(title, kind, v, URL.createObjectURL(b), note); return o && { o, th, image: b }
 }
 // ---- actions
 async function start() {
     try { Notification.requestPermission() } catch (e) { }
     const r = await snap('cluster', 'Upload cluster image'); if (!r) return;
-    S.run = { id: Date.now(), start: new Date().toISOString(), due: null, end: null }; add('start_km', r.o, r.th); await visit()
+    S.run = { id: Date.now(), start: new Date().toISOString(), due: null, end: null };
+    const ok = await add('start_km', r.o, r.th, r.image);
+    if (!ok) { S.run = null; keep(); render(); return; }
+    await visit();
 }
-async function visit() { const o = await review('Business details', 'visit', {}); if (!o) return; add('visit', o); await loc('Capture location image') }
+async function visit() {
+    const o = await review('Business details', 'visit', {}); if (!o) return;
+    const ok = await add('visit', o);
+    if (ok) await loc('Capture location image');
+}
 async function loc(t) {
     const r = await snap('geo', t || 'Upload current location image'); if (!r) return;
-    S.run.due = Date.now() + 30 * 60000; S.run.notified = false; add('location', r.o, r.th)
+    const ok = await add('location', r.o, r.th, r.image);
+    if (ok) {
+        S.run.due = Date.now() + 30 * 60000;
+        S.run.notified = false;
+        keep();
+    }
 }
 function fuel() {
     const m = modal('<h3>Choose fuel type</h3><p class="mu sub">Pick what you are refuelling.</p><button class="fuel-option" id="p"><span class="fuel-icon">P</span><span><b>Petrol</b><small>Generator, ₹1000 preset</small></span><span class="fuel-arrow">›</span></button><button class="fuel-option" id="d"><span class="fuel-icon">D</span><span><b>Diesel</b><small>Vehicle, ₹1500 preset</small></span><span class="fuel-arrow">›</span></button><button class="g" id="x">Cancel</button>', 'md-choice');
@@ -419,15 +411,18 @@ function fuel() {
         r.o.fuel_for = type;
         r.o.preset = preset;
         r.o.flag = Number(r.o.amount) !== preset ? 'Amount differs from ₹' + preset : '';
-        add('fuel', r.o, r.th);
+        await add('fuel', r.o, r.th, r.image);
     };
     m.querySelector('#p').onclick = () => go('Petrol - Generator', 1000);
     m.querySelector('#d').onclick = () => go('Diesel - Vehicle', 1500);
     m.querySelector('#x').onclick = () => m.remove();
 }
 async function stop() {
-    if (!confirm('Stop today’s run?')) return; const r = await snap('cluster', 'Upload cluster image'); if (!r) return;
-    S.run.end = new Date().toISOString(); add('stop_km', r.o, r.th)
+    if (!confirm('Stop today’s run?')) return;
+    const r = await snap('cluster', 'Upload cluster image'); if (!r) return;
+    S.run.end = new Date().toISOString();
+    const ok = await add('stop_km', r.o, r.th, r.image);
+    if (!ok) { S.run.end = null; keep(); }
 }
 function reset() { if (confirm('Clear today’s data from this device? Export CSV first.')) { S = { run: null, ev: [] }; keep(); render() } }
 async function csv() {
@@ -553,8 +548,7 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('mess
 function updateNetworkBadge() {
     const chip = $('#offline-chip');
     if (chip) chip.hidden = navigator.onLine;
-    if (navigator.onLine) syncPendingEvents();
-    else showToast('Offline mode active. Logs are saved locally.');
+    if (!navigator.onLine) showToast('Internet disconnected. Supabase connection required to save.');
 }
 window.addEventListener('online', updateNetworkBadge);
 window.addEventListener('offline', updateNetworkBadge);

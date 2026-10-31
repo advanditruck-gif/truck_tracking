@@ -1,5 +1,5 @@
 /* Ad Vandi Service Worker (PWA) */
-const CACHE_NAME = 'advandi-v1.6';
+const CACHE_NAME = 'advandi-v2.0';
 
 const PRECACHE_ASSETS = [
     '/',
@@ -16,15 +16,14 @@ const PRECACHE_ASSETS = [
     '/static/icons/favicon.png'
 ];
 
-// Optional external assets (best-effort precache)
 const EXTERNAL_ASSETS = [
     'https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600;700&display=swap'
 ];
 
 self.addEventListener('install', event => {
+    self.skipWaiting();
     event.waitUntil(
         caches.open(CACHE_NAME).then(async cache => {
-            // Precache core assets reliably
             await Promise.allSettled(
                 PRECACHE_ASSETS.map(url =>
                     cache.add(new Request(url, { cache: 'reload' })).catch(err => {
@@ -32,13 +31,12 @@ self.addEventListener('install', event => {
                     })
                 )
             );
-            // Precache external fonts
             await Promise.allSettled(
                 EXTERNAL_ASSETS.map(url =>
                     cache.add(url).catch(err => console.warn('[SW] External font precache failed:', err))
                 )
             );
-        }).then(() => self.skipWaiting())
+        })
     );
 });
 
@@ -59,12 +57,12 @@ self.addEventListener('fetch', event => {
     const req = event.request;
     const url = new URL(req.url);
 
-    // Non-GET requests (e.g. POST /api/events, /api/extract) are handled by network or client queue
+    // Non-GET requests (e.g. POST /api/events, /api/extract) are handled directly by network
     if (req.method !== 'GET') {
         return;
     }
 
-    // 1. Navigation requests (HTML pages) -> Network first, fallback to cached '/'
+    // 1. Navigation requests (HTML pages) -> Network first, fallback to cached shell
     if (req.mode === 'navigate') {
         event.respondWith(
             fetch(req)
@@ -76,9 +74,9 @@ self.addEventListener('fetch', event => {
                     return res;
                 })
                 .catch(async () => {
-                    const cached = await caches.match(req, { ignoreSearch: true });
+                    const cached = await caches.match(req);
                     if (cached) return cached;
-                    const shell = await caches.match('/', { ignoreSearch: true });
+                    const shell = await caches.match('/');
                     if (shell) return shell;
                     return new Response(
                         '<!DOCTYPE html><html><body style="background:#080c16;color:#e8ca78;font-family:sans-serif;padding:2rem;text-align:center"><h2>Ad Vandi is Offline</h2><p>Please check your connection and reopen the app.</p></body></html>',
@@ -89,7 +87,7 @@ self.addEventListener('fetch', event => {
         return;
     }
 
-    // 2. API calls -> Network first, fallback to offline error JSON
+    // 2. API calls -> Network only, fallback to offline JSON error
     if (url.pathname.startsWith('/api/')) {
         event.respondWith(
             fetch(req).catch(() => {
@@ -102,21 +100,18 @@ self.addEventListener('fetch', event => {
         return;
     }
 
-    // 3. Static assets & Google Fonts -> Stale-While-Revalidate
+    // 3. Static assets & scripts -> NETWORK FIRST, fallback to cache
+    // This ensures code changes (app.js, style.css) are NEVER blocked by stale cache!
     event.respondWith(
-        caches.match(req, { ignoreSearch: true }).then(cached => {
-            const networkFetch = fetch(req)
-                .then(response => {
-                    if (response && response.status === 200 && (response.type === 'basic' || response.type === 'cors')) {
-                        const copy = response.clone();
-                        caches.open(CACHE_NAME).then(c => c.put(req, copy));
-                    }
-                    return response;
-                })
-                .catch(() => cached);
-
-            return cached || networkFetch;
-        })
+        fetch(req)
+            .then(response => {
+                if (response && response.status === 200 && (response.type === 'basic' || response.type === 'cors')) {
+                    const copy = response.clone();
+                    caches.open(CACHE_NAME).then(c => c.put(req, copy));
+                }
+                return response;
+            })
+            .catch(() => caches.match(req))
     );
 });
 
@@ -148,7 +143,6 @@ self.addEventListener('push', event => {
             data: { url: '/' }
         });
 
-        // If the app is open, tell it to ring alert.mp3
         const wins = await clients.matchAll({ type: 'window', includeUncontrolled: true });
         wins.forEach(w => w.postMessage({ type: 'ALARM' }));
     })());
