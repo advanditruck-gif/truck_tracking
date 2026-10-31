@@ -39,7 +39,83 @@ const thumb = async b => {
     const bm = await createImageBitmap(b), c = document.createElement('canvas'); c.width = c.height = 96;
     const s = Math.min(bm.width, bm.height); c.getContext('2d').drawImage(bm, 0, 0, s, s, 0, 0, 96, 96); return c.toDataURL('image/jpeg', .6)
 };
-const gpsNow = fresh => new Promise(ok => { if (!navigator.geolocation) return ok({ err: 'This browser has no GPS support.' }); navigator.geolocation.getCurrentPosition(p => ok({ c: p.coords.latitude.toFixed(5) + ',' + p.coords.longitude.toFixed(5) }), e => ok({ err: e.code === 1 ? 'Location permission is blocked. Allow Location for this site in the browser settings.' : e.code === 3 ? 'GPS timed out. Turn on the phone Location switch and try again.' : 'GPS position unavailable. Turn on the phone Location switch.' }), { enableHighAccuracy: true, timeout: fresh ? 15000 : 20000, maximumAge: fresh ? 0 : 60000 }) });
+const gpsNow = fresh => new Promise(resolve => {
+    if (!navigator.geolocation) {
+        if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+            return resolve({ err: 'GPS requires a secure (HTTPS) connection or localhost. If accessing across Wi-Fi, run with HTTPS=1.' });
+        }
+        return resolve({ err: 'This device/browser does not support GPS.' });
+    }
+
+    let resolved = false;
+    const finish = res => {
+        if (!resolved) {
+            resolved = true;
+            resolve(res);
+        }
+    };
+
+    const tryPosition = (highAcc, timeoutMs, maxAgeMs) => new Promise((resOk, resErr) => {
+        let watchId = null;
+        let timer = null;
+        let done = false;
+
+        const cleanup = () => {
+            if (done) return;
+            done = true;
+            if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+            if (timer !== null) clearTimeout(timer);
+        };
+
+        timer = setTimeout(() => {
+            cleanup();
+            resErr({ code: 3, message: 'Timeout' });
+        }, timeoutMs);
+
+        try {
+            watchId = navigator.geolocation.watchPosition(
+                p => {
+                    cleanup();
+                    resOk({
+                        c: p.coords.latitude.toFixed(5) + ',' + p.coords.longitude.toFixed(5),
+                        lat: p.coords.latitude,
+                        lon: p.coords.longitude,
+                        accuracy: Math.round(p.coords.accuracy || 0)
+                    });
+                },
+                err => {
+                    cleanup();
+                    resErr(err);
+                },
+                { enableHighAccuracy: highAcc, timeout: timeoutMs, maximumAge: maxAgeMs }
+            );
+        } catch (e) {
+            cleanup();
+            resErr(e);
+        }
+    });
+
+    // Stage 1: Try High-Accuracy GPS (satellites) for 6 seconds
+    tryPosition(true, 6000, fresh ? 0 : 30000)
+        .then(pos => finish(pos))
+        .catch(err => {
+            if (err && err.code === 1) {
+                return finish({ err: 'Location permission is blocked. Allow Location access in browser or app settings.' });
+            }
+            // Stage 2: Fast fallback to Network Location (Wi-Fi / cell towers)
+            tryPosition(false, 9000, 180000)
+                .then(pos => finish(pos))
+                .catch(err2 => {
+                    if (err2 && err2.code === 1) {
+                        finish({ err: 'Location permission is blocked. Allow Location access in browser or app settings.' });
+                    } else if (err2 && err2.code === 3) {
+                        finish({ err: 'GPS timed out. Ensure device Location switch is turned ON.' });
+                    } else {
+                        finish({ err: 'GPS position unavailable. Ensure device Location switch is turned ON.' });
+                    }
+                });
+        });
+});
 // Live camera only: no gallery picker. Fallback = native camera intent (capture) if getUserMedia is blocked.
 function shoot(title) {
     return new Promise(res => {
@@ -69,17 +145,63 @@ function review(title, kind, vals, th, note) {
         const m = modal('<h3>' + title + '</h3><p class="mu sub">Check the detected values, then save. Cancel to retake the photo.</p>' + (th ? '<img class="th" src="' + th + '" alt="">' : '') + (note ? '<p class="note' + (/failed|No values|Nothing|not read/i.test(note) ? ' err' : '') + '">' + esc(note) + '</p>' : '') + '<div id="fl"></div><div class="row"><button class="g" id="x">Cancel</button><button id="ok">Save</button></div>', 'md-review'), ins = {};
         const save = m.querySelector('#ok');
         FIELDS[kind].forEach(k => {
-            const l = document.createElement('label'); l.textContent = LBL[k] || k.replace(/_/g, ' '); if (!NARROW.includes(k)) l.className = 'wide'; const i = document.createElement('input'); i.value = vals[k] ?? ''; i.readOnly = true;
-            ins[k] = i; l.append(i);
+            const l = document.createElement('label');
+            l.textContent = LBL[k] || k.replace(/_/g, ' ');
+            if (!NARROW.includes(k)) l.className = 'wide';
+            const i = document.createElement('input');
+            i.value = vals[k] ?? '';
+            // Allow manual editing for location fields so driver is never stuck if GPS is weak
+            if (kind === 'geo' && k !== 'date' && k !== 'time') {
+                i.readOnly = false;
+            } else {
+                i.readOnly = true;
+            }
+            ins[k] = i;
+
+            if (kind === 'geo' && k === 'gps') {
+                const wrap = document.createElement('div');
+                wrap.className = 'geo-gps-field-wrap';
+                wrap.append(i);
+                const refBtn = document.createElement('button');
+                refBtn.type = 'button';
+                refBtn.className = 'g geo-refresh-gps-btn';
+                refBtn.innerHTML = '📍 Get GPS';
+                refBtn.onclick = async () => {
+                    refBtn.disabled = true;
+                    refBtn.textContent = 'Locating…';
+                    const pos = await gpsNow(true);
+                    refBtn.disabled = false;
+                    refBtn.innerHTML = '📍 Get GPS';
+                    if (pos.c) {
+                        i.value = pos.c;
+                        showToast('GPS position acquired: ' + pos.c);
+                        const addr = await reverseGeocode(pos.c);
+                        if (addr && !addr._error) {
+                            if (ins.road && !ins.road.value) ins.road.value = addr.road || '';
+                            if (ins.location) ins.location.value = addr.location || '';
+                            if (ins.district) ins.district.value = addr.district || '';
+                            if (ins.state) ins.state.value = addr.state || '';
+                        }
+                    } else {
+                        alert('GPS Notice: ' + (pos.err || 'Position unavailable. Make sure Location is enabled on your phone.'));
+                    }
+                };
+                wrap.append(refBtn);
+                l.append(wrap);
+            } else {
+                l.append(i);
+            }
+
             if (kind === 'cluster' && k === 'km') {
                 if (!validOdometer(i.value)) {
                     save.disabled = true;
-                    const error = document.createElement('small'); error.className = 'field-error';
+                    const error = document.createElement('small');
+                    error.className = 'field-error';
                     error.textContent = 'Odometer reading is required. Cancel and retake the photo.';
                     l.append(error);
                 }
             }
-            m.querySelector('#fl').append(l)
+            m.querySelector('#fl').append(l);
         });
         m.querySelector('#x').onclick = () => { m.remove(); res(null) };
         m.querySelector('#ok').onclick = () => { const o = {}; for (const k in ins) o[k] = ins[k].value.trim(); m.remove(); res(o) }
@@ -207,10 +329,27 @@ function add(t, d, th) {
     render();
 }
 async function snap(kind, title, extra = {}) {
-    const gp = kind === 'geo' ? gpsNow() : null; const b = await shoot(title); if (!b) return null; const gpsFinal = kind === 'geo' ? gpsNow(true).then(async f => { if (f.c) return f; const w = await gp; return w.c ? w : f }) : null; const capturedAt = new Date(), done = busy('Reading image…');
-    const [d, th, g] = await Promise.all([extract(kind, b), thumb(b), gpsFinal]); done();
-    const gps = (g && g.c) || '', gpsErr = (g && g.err) || ''; const v = Object.assign({}, d, extra); if (kind === 'geo') v.device_gps = gps; if (kind === 'geo' && !v.gps) v.gps = gps;
-    const coordinates = gps || v.gps; let geoError = ''; if (kind === 'geo' && !coordinates) geoError = 'GPS failed: ' + (gpsErr || 'no position found.'); if (kind === 'geo' && coordinates) { const address = await reverseGeocode(coordinates); geoError = address._error || ''; for (const key of ['road', 'state']) if (!v[key] && address[key]) v[key] = address[key]; if (address.location) v.location = address.location; if (address.district) v.district = address.district; }
+    const gp = kind === 'geo' ? gpsNow() : null;
+    const b = await shoot(title);
+    if (!b) return null;
+    const gpsFinal = kind === 'geo' ? (gp ? gp.then(async f => { if (f && f.c) return f; return await gpsNow(true); }) : gpsNow(true)) : null;
+    const capturedAt = new Date(), done = busy('Reading image…');
+    const [d, th, g] = await Promise.all([extract(kind, b), thumb(b), gpsFinal]);
+    done();
+    const gps = (g && g.c) || '', gpsErr = (g && g.err) || '';
+    const v = Object.assign({}, d, extra);
+    if (kind === 'geo') v.device_gps = gps;
+    if (kind === 'geo' && !v.gps) v.gps = gps;
+    const coordinates = gps || v.gps;
+    let geoError = '';
+    if (kind === 'geo' && !coordinates) geoError = 'GPS notice: ' + (gpsErr || 'no coordinates found.');
+    if (kind === 'geo' && coordinates) {
+        const address = await reverseGeocode(coordinates);
+        geoError = address._error || '';
+        for (const key of ['road', 'state']) if (!v[key] && address[key]) v[key] = address[key];
+        if (address.location) v.location = address.location;
+        if (address.district) v.district = address.district;
+    }
     if (kind === 'geo' && String(v.state || '').trim().toLowerCase() === 'kerala' && String(v.district || '').trim().toLowerCase() === 'ernad') v.district = 'Malappuram';
     if (kind === 'cluster' || kind === 'geo') {
         const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -448,12 +587,38 @@ function showIosInstallPrompt() {
     document.body.appendChild(sheet);
 }
 
+function showInstallHelp() {
+    const isHttps = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+    if (!isHttps) {
+        alert('⚠️ Installation & GPS Notice:\n\nInstalling as a PWA and browser GPS require a secure connection (HTTPS) or localhost.\n\nIf accessing over Wi-Fi, start python app.py with HTTPS=1.');
+        return;
+    }
+    if (isIos) {
+        showIosInstallPrompt();
+        return;
+    }
+    alert('📱 How to install Ad Vandi:\n\n1. Tap your browser menu (⋮ or ⋯) in the top-right corner.\n2. Tap "Install App" or "Add to Home Screen".\n3. Confirm to install as a standalone app.');
+}
+
 const installBtn = $('#install-btn');
 if (installBtn && !isStandalone) {
-    if (isIos) {
-        installBtn.hidden = false;
-        installBtn.onclick = () => showIosInstallPrompt();
-    }
+    installBtn.hidden = false;
+    installBtn.onclick = async () => {
+        if (deferredInstall) {
+            try {
+                await deferredInstall.prompt();
+                const res = await deferredInstall.userChoice;
+                if (res && res.outcome === 'accepted') showToast('Installing Ad Vandi...');
+                deferredInstall = null;
+                installBtn.hidden = true;
+            } catch (err) {
+                console.warn('Install error:', err);
+                showInstallHelp();
+            }
+        } else {
+            showInstallHelp();
+        }
+    };
 }
 
 window.addEventListener('beforeinstallprompt', e => {
@@ -462,19 +627,6 @@ window.addEventListener('beforeinstallprompt', e => {
     const btn = $('#install-btn');
     if (btn && !isStandalone) {
         btn.hidden = false;
-        btn.onclick = async () => {
-            if (deferredInstall) {
-                btn.hidden = true;
-                deferredInstall.prompt();
-                const res = await deferredInstall.userChoice;
-                if (res && res.outcome === 'accepted') showToast('Installing Ad Vandi...');
-                deferredInstall = null;
-            } else if (isIos) {
-                showIosInstallPrompt();
-            } else {
-                showToast('Use browser menu (⋮) -> "Install App"');
-            }
-        };
     }
 });
 

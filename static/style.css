@@ -346,3 +346,28 @@ input:focus{outline:none;border-color:var(--focus);box-shadow:0 0 0 3px rgba(43,
   min-height: 44px;
   margin-top: 8px;
 }
+
+.geo-gps-field-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.geo-gps-field-wrap input {
+  flex: 1;
+}
+.geo-refresh-gps-btn {
+  width: auto !important;
+  min-height: 48px !important;
+  margin: 0 !important;
+  padding: 0 14px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  white-space: nowrap !important;
+  border-radius: 12px !important;
+  color: var(--focus, #e8ca78) !important;
+  border-color: rgba(232, 202, 120, 0.4) !important;
+}
+.geo-refresh-gps-btn:hover {
+  background: rgba(232, 202, 120, 0.15) !important;
+}

@@ -277,39 +277,60 @@ def api_reverse_geocode():
     if not (-90 <= lat <= 90 and -180 <= lon <= 180):
         return jsonify({"error": "Latitude or longitude is out of range."}), 400
 
+    # 1. Primary: OpenStreetMap Nominatim
     url = "https://nominatim.openstreetmap.org/reverse?" + urlencode({
         "format": "jsonv2", "lat": lat, "lon": lon, "zoom": 18, "addressdetails": 1,
     })
     req = Request(url, headers={
-        "User-Agent": "TruckDailyTracker/1.0 (reverse geocoding)",
+        "User-Agent": "AdVandi-TruckTracker/1.0 (https://github.com; support@advandi.local)",
         "Accept": "application/json",
         "Accept-Language": request.accept_languages.best or "en",
     })
     try:
-        with urlopen(req, timeout=8) as response:
+        with urlopen(req, timeout=6) as response:
             result = json.loads(response.read().decode("utf-8"))
-    except (HTTPError, URLError, TimeoutError, OSError, ValueError) as e:
-        print("reverse geocoding failed:", repr(e))
-        return jsonify({"error": "Address lookup failed. Check the server's internet connection and try again."}), 502
+            if not result.get("error"):
+                address = result.get("address", {})
+                state = address.get("state")
+                district = address.get("state_district") or address.get("district")
+                is_kerala = bool(state and state.strip().casefold() == "kerala")
+                if is_kerala and district and district.strip().casefold() == "ernad":
+                    district = "Malappuram"
+                if not district and not is_kerala:
+                    district = address.get("city_district") or address.get("county")
+                return jsonify({
+                    "road": address.get("road") or address.get("pedestrian") or address.get("footway") or address.get("residential") or "",
+                    "location": address.get("suburb") or address.get("village") or address.get("town")
+                                or address.get("city") or address.get("hamlet") or address.get("neighbourhood")
+                                or address.get("municipality") or "",
+                    "district": district or "",
+                    "state": state or "",
+                })
+    except Exception as e:
+        app.logger.warning("OSM Nominatim reverse geocoding warning: %r. Trying fallback...", e)
 
-    if result.get("error"):
-        return jsonify({"error": "No address could be found for these coordinates."}), 404
-    address = result.get("address", {})
-    state = address.get("state")
-    district = address.get("state_district") or address.get("district")
-    is_kerala = bool(state and state.strip().casefold() == "kerala")
-    if is_kerala and district and district.strip().casefold() == "ernad":
-        district = "Malappuram"
-    if not district and not is_kerala:
-        district = address.get("city_district") or address.get("county")
-    return jsonify({
-        "road": address.get("road") or address.get("pedestrian") or address.get("footway") or address.get("residential"),
-        "location": address.get("suburb") or address.get("village") or address.get("town")
-                    or address.get("city") or address.get("hamlet") or address.get("neighbourhood")
-                    or address.get("municipality"),
-        "district": district,
-        "state": state,
-    })
+    # 2. Secondary fallback: BigDataCloud free client reverse geocoding
+    try:
+        bdc_url = f"https://api.bigdatacloud.net/data/reverse-geocode-client?latitude={lat}&longitude={lon}&localityLanguage=en"
+        bdc_req = Request(bdc_url, headers={"User-Agent": "AdVandi-TruckTracker/1.0"})
+        with urlopen(bdc_req, timeout=5) as response:
+            data = json.loads(response.read().decode("utf-8"))
+            state = data.get("principalSubdivision") or ""
+            city = data.get("city") or data.get("locality") or ""
+            district = city
+            if state.strip().casefold() == "kerala" and district.strip().casefold() == "ernad":
+                district = "Malappuram"
+            loc = data.get("locality") or city
+            return jsonify({
+                "road": "",
+                "location": loc,
+                "district": district,
+                "state": state,
+            })
+    except Exception as e:
+        app.logger.warning("BigDataCloud fallback reverse geocoding failed: %r", e)
+
+    return jsonify({"error": "Address lookup service is currently unavailable. You can enter the location manually."}), 502
 
 
 @app.post("/api/extract")
