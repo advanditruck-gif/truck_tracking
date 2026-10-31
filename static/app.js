@@ -158,6 +158,41 @@ function review(title, kind, vals, th, note) {
             }
             ins[k] = i;
 
+            if (kind === 'geo' && k === 'gps') {
+                // GPS input already handled earlier; just append directly (button removed)
+                l.append(i);
+            } else {
+                l.append(i);
+            }
+
+            // After creating inputs, auto‑populate missing location fields using GPS if available
+            if (kind === 'geo' && ['road','location','district','state'].includes(k) && !i.value && vals.gps) {
+                // Will fill later after loop
+            }
+        });
+        // Auto‑populate missing location details via reverseGeocode based on GPS
+        if (kind === 'geo' && vals.gps) {
+            const addr = await reverseGeocode(vals.gps);
+            if (addr && !addr._error) {
+                if (ins.road && !ins.road.value) ins.road.value = addr.road || '';
+                if (ins.location && !ins.location.value) ins.location.value = addr.location || '';
+                if (ins.district && !ins.district.value) ins.district.value = addr.district || '';
+                if (ins.state && !ins.state.value) ins.state.value = addr.state || '';
+            }
+        }
+            const l = document.createElement('label');
+            l.textContent = LBL[k] || k.replace(/_/g, ' ');
+            if (!NARROW.includes(k)) l.className = 'wide';
+            const i = document.createElement('input');
+            i.value = vals[k] ?? '';
+            // Allow manual editing for location fields so driver is never stuck if GPS is weak
+            if (kind === 'geo' && k !== 'date' && k !== 'time') {
+                i.readOnly = false;
+            } else {
+                i.readOnly = true;
+            }
+            ins[k] = i;
+
             l.append(i);
 
             if (kind === 'cluster' && k === 'km') {
