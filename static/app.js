@@ -139,76 +139,84 @@ function shoot(title) {
 }
 const LBL = { km: 'Odometer (km)', business_name: 'Business name', amount_collected: 'Amount collected (₹)', receipt_no: 'Receipt or voucher no.', vehicle_no: 'Vehicle no.', gps: 'GPS', rate: 'Rate (₹/L)', volume: 'Volume (L)', amount: 'Amount (₹)' }, NARROW = ['date', 'time', 'rate', 'volume', 'amount', 'district', 'state', 'product', 'vehicle_no'];
 const validOdometer = value => /^\d+(?:\.\d+)?$/.test(String(value ?? '').replace(/,/g, '').trim());
-function review(title, kind, vals, th, note) {
+async function review(title, kind, vals, th, note) {
     if (kind === 'visit') return reviewVisit(vals);
-    return new Promise(res => {
-        const m = modal('<h3>' + title + '</h3><p class="mu sub">Check the detected values, then save. Cancel to retake the photo.</p>' + (th ? '<img class="th" src="' + th + '" alt="">' : '') + (note ? '<p class="note' + (/failed|No values|Nothing|not read/i.test(note) ? ' err' : '') + '">' + esc(note) + '</p>' : '') + '<div id="fl"></div><div class="row"><button class="g" id="x">Cancel</button><button id="ok">Save</button></div>', 'md-review'), ins = {};
-        const save = m.querySelector('#ok');
-        FIELDS[kind].forEach(k => {
-            const l = document.createElement('label');
-            l.textContent = LBL[k] || k.replace(/_/g, ' ');
-            if (!NARROW.includes(k)) l.className = 'wide';
-            const i = document.createElement('input');
-            i.value = vals[k] ?? '';
-            // Allow manual editing for location fields so driver is never stuck if GPS is weak
-            if (kind === 'geo' && k !== 'date' && k !== 'time') {
-                i.readOnly = false;
-            } else {
-                i.readOnly = true;
-            }
-            ins[k] = i;
+    const m = modal('<h3>' + title + '</h3><p class="mu sub">Check the detected values, then save. Cancel to retake the photo.</p>' + (th ? '<img class="th" src="' + th + '" alt="">' : '') + (note ? '<p class="note' + (/failed|No values|Nothing|not read/i.test(note) ? ' err' : '') + '">' + esc(note) + '</p>' : '') + '<div id="fl"></div><div class="row"><button class="g" id="x">Cancel</button><button id="ok">Save</button></div>', 'md-review');
+    const ins = {};
+    const save = m.querySelector('#ok');
 
-            if (kind === 'geo' && k === 'gps') {
-                // GPS input already handled earlier; just append directly (button removed)
-                l.append(i);
-            } else {
-                l.append(i);
-            }
+    FIELDS[kind].forEach(k => {
+        const l = document.createElement('label');
+        l.textContent = LBL[k] || k.replace(/_/g, ' ');
+        if (!NARROW.includes(k)) l.className = 'wide';
+        const i = document.createElement('input');
+        i.value = vals[k] ?? '';
+        i.readOnly = !(kind === 'geo' && k !== 'date' && k !== 'time');
+        ins[k] = i;
 
-            // After creating inputs, auto‑populate missing location fields using GPS if available
-            if (kind === 'geo' && ['road','location','district','state'].includes(k) && !i.value && vals.gps) {
-                // Will fill later after loop
-            }
-        });
-        // Auto‑populate missing location details via reverseGeocode based on GPS
-        if (kind === 'geo' && vals.gps) {
-            const addr = await reverseGeocode(vals.gps);
-            if (addr && !addr._error) {
-                if (ins.road && !ins.road.value) ins.road.value = addr.road || '';
-                if (ins.location && !ins.location.value) ins.location.value = addr.location || '';
-                if (ins.district && !ins.district.value) ins.district.value = addr.district || '';
-                if (ins.state && !ins.state.value) ins.state.value = addr.state || '';
-            }
-        }
-            const l = document.createElement('label');
-            l.textContent = LBL[k] || k.replace(/_/g, ' ');
-            if (!NARROW.includes(k)) l.className = 'wide';
-            const i = document.createElement('input');
-            i.value = vals[k] ?? '';
-            // Allow manual editing for location fields so driver is never stuck if GPS is weak
-            if (kind === 'geo' && k !== 'date' && k !== 'time') {
-                i.readOnly = false;
-            } else {
-                i.readOnly = true;
-            }
-            ins[k] = i;
-
-            l.append(i);
-
-            if (kind === 'cluster' && k === 'km') {
-                if (!validOdometer(i.value)) {
-                    save.disabled = true;
-                    const error = document.createElement('small');
-                    error.className = 'field-error';
-                    error.textContent = 'Odometer reading is required. Cancel and retake the photo.';
-                    l.append(error);
+        if (kind === 'geo' && k === 'gps') {
+            const wrap = document.createElement('div');
+            wrap.className = 'geo-gps-field-wrap';
+            wrap.append(i);
+            const refBtn = document.createElement('button');
+            refBtn.type = 'button';
+            refBtn.className = 'g geo-refresh-gps-btn';
+            refBtn.innerHTML = '📍 Get GPS';
+            refBtn.onclick = async () => {
+                refBtn.disabled = true;
+                refBtn.textContent = 'Locating…';
+                const pos = await gpsNow(true);
+                refBtn.disabled = false;
+                refBtn.innerHTML = '📍 Get GPS';
+                if (pos.c) {
+                    i.value = pos.c;
+                    showToast('GPS position acquired: ' + pos.c);
+                    const addr = await reverseGeocode(pos.c);
+                    if (addr && !addr._error) {
+                        if (ins.road && !ins.road.value) ins.road.value = addr.road || '';
+                        if (ins.location) ins.location.value = addr.location || '';
+                        if (ins.district) ins.district.value = addr.district || '';
+                        if (ins.state) ins.state.value = addr.state || '';
+                    }
+                } else {
+                    alert('GPS Notice: ' + (pos.err || 'Position unavailable. Make sure Location is enabled on your phone.'));
                 }
-            }
-            m.querySelector('#fl').append(l);
-        });
+            };
+            wrap.append(refBtn);
+            l.append(wrap);
+        } else {
+            l.append(i);
+        }
+
+        if (kind === 'cluster' && k === 'km' && !validOdometer(i.value)) {
+            save.disabled = true;
+            const error = document.createElement('small');
+            error.className = 'field-error';
+            error.textContent = 'Odometer reading is required. Cancel and retake the photo.';
+            l.append(error);
+        }
+        m.querySelector('#fl').append(l);
+    });
+
+    if (kind === 'geo' && vals.gps) {
+        const addr = await reverseGeocode(vals.gps);
+        if (addr && !addr._error) {
+            if (ins.road && !ins.road.value) ins.road.value = addr.road || '';
+            if (ins.location && !ins.location.value) ins.location.value = addr.location || '';
+            if (ins.district && !ins.district.value) ins.district.value = addr.district || '';
+            if (ins.state && !ins.state.value) ins.state.value = addr.state || '';
+        }
+    }
+
+    return new Promise(res => {
         m.querySelector('#x').onclick = () => { m.remove(); res(null) };
-        m.querySelector('#ok').onclick = () => { const o = {}; for (const k in ins) o[k] = ins[k].value.trim(); m.remove(); res(o) }
-    })
+        save.onclick = () => {
+            const o = {};
+            for (const k in ins) o[k] = ins[k].value.trim();
+            m.remove();
+            res(o);
+        };
+    });
 }
 function reviewVisit(vals) {
     return new Promise(res => {
@@ -269,8 +277,8 @@ function reviewVisit(vals) {
         };
     })
 }
-async function add(t, d, th, image) {
-    const event = { run: S.run && S.run.id, t, at: new Date().toISOString(), d, token: window.__pushToken || null };
+async function add(t, d, th, image, capturedAt) {
+    const event = { run: S.run && S.run.id, t, at: capturedAt || new Date().toISOString(), d, token: window.__pushToken || null };
     const done = busy('Saving to Supabase…');
     try {
         let options;
@@ -336,18 +344,26 @@ async function snap(kind, title, extra = {}) {
     if (kind === 'geo' && String(v.state || '').trim().toLowerCase() === 'kerala' && String(v.district || '').trim().toLowerCase() === 'ernad') v.district = 'Malappuram';
     if (kind === 'cluster' || kind === 'geo') {
         const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        v.date = v.date || String(capturedAt.getDate()).padStart(2, '0') + '-' + months[capturedAt.getMonth()] + '-' + capturedAt.getFullYear();
-        v.time = v.time || capturedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        const captureDate = String(capturedAt.getDate()).padStart(2, '0') + '-' + months[capturedAt.getMonth()] + '-' + capturedAt.getFullYear();
+        const captureTime = capturedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        if (kind === 'cluster') {
+            v.date = captureDate;
+            v.time = captureTime;
+        } else {
+            v.date = v.date || captureDate;
+            v.time = v.time || captureTime;
+        }
     }
     const err = d && d._error; if (d) delete d._error; const hasValues = FIELDS[kind].some(k => d && d[k] != null && String(d[k]).trim() !== ''); const note = kind === 'geo' ? 'Address lookup uses phone GPS via OpenStreetMap (© OpenStreetMap contributors).' + (geoError ? ' ' + geoError : '') : (err ? 'Reading failed: ' + err : (!hasValues ? 'No values returned. Server replied: ' + JSON.stringify(d) + ' (open /api/ping to check the server version)' : (kind === 'cluster' && !validOdometer(v.km) ? 'The odometer was not read. Cancel and retake the photo.' : '')));
-    const o = await review(title, kind, v, URL.createObjectURL(b), note); return o && { o, th, image: b }
+    const o = await review(title, kind, v, URL.createObjectURL(b), note);
+    return o && { o, th, image: b, capturedAt: capturedAt.toISOString() }
 }
 // ---- actions
 async function start() {
     try { Notification.requestPermission() } catch (e) { }
     const r = await snap('cluster', 'Upload cluster image'); if (!r) return;
     S.run = { id: Date.now(), start: new Date().toISOString(), due: null, end: null };
-    const ok = await add('start_km', r.o, r.th, r.image);
+    const ok = await add('start_km', r.o, r.th, r.image, r.capturedAt);
     if (!ok) { S.run = null; keep(); render(); return; }
     await visit();
 }
@@ -424,7 +440,7 @@ async function stop() {
     if (!confirm('Stop today’s run?')) return;
     const r = await snap('cluster', 'Upload cluster image'); if (!r) return;
     S.run.end = new Date().toISOString();
-    const ok = await add('stop_km', r.o, r.th, r.image);
+    const ok = await add('stop_km', r.o, r.th, r.image, r.capturedAt);
     if (!ok) { S.run.end = null; keep(); }
 }
 function reset() { if (confirm('Clear today’s data from this device? Export CSV first.')) { S = { run: null, ev: [] }; keep(); render() } }
