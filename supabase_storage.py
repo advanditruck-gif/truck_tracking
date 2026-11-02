@@ -32,7 +32,7 @@ def _request(method, endpoint, body=None, content_type=None, cache_control=None,
         headers["Cache-Control"] = cache_control
     if upsert:
         headers["x-upsert"] = "true"
-    elif body is not None:
+    elif body is not None and not isinstance(body, (bytes, bytearray, memoryview)):
         headers["Content-Type"] = "application/json"
         data = json.dumps(body).encode("utf-8")
     req = Request(base_url + endpoint, data=data, headers=headers, method=method)
