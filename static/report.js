@@ -43,37 +43,66 @@ const labels = {
     visit: 'Business visit'
 };
 const folders = [
-    { id: 'all', label: 'All records', icon: '▤' },
-    { id: 'odo', label: 'Odometer', icon: '◉' },
-    { id: 'fuel', label: 'Fuel bills', icon: '▣' },
-    { id: 'petrol', label: 'Petrol', icon: '·', child: true },
-    { id: 'diesel', label: 'Diesel', icon: '·', child: true },
-    { id: 'location', label: 'Location', icon: '⌖' },
-    { id: 'visit', label: 'Business visits', icon: '▧' }
+    { id: 'all', label: 'All records' },
+    { id: 'odo', label: 'Odometer' },
+    { id: 'fuel', label: 'Fuel bills' },
+    { id: 'petrol', label: 'Petrol', child: true },
+    { id: 'diesel', label: 'Diesel', child: true },
+    { id: 'location', label: 'Location' },
+    { id: 'visit', label: 'Business visits' }
 ];
+
+const folderIcons = {
+    all: '<path d="M4 5h16v14H4z"/><path d="M8 9h8M8 13h8M8 17h5"/>',
+    odo: '<circle cx="12" cy="12" r="8"/><path d="M12 12l4-4M8 16h8"/>',
+    fuel: '<path d="M5 21V4h9v17M4 21h12"/><path d="M7 7h5v4H7z"/><path d="M14 8h2l3 3v6a2 2 0 0 0 4 0v-5l-3-3"/>',
+    location: '<path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/>',
+    visit: '<path d="M3 10h18l-2-6H5z"/><path d="M5 10v10h14V10M9 20v-6h6v6"/><path d="M3 10a2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0"/>'
+};
+const folderIcon = folder => folder.child
+    ? '·'
+    : '<svg class="rep-folder-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      folderIcons[folder.id] + '</svg>';
 
 let REPORTS = [], RECORDS = [], selectedFolder = 'all', dateStart = '', dateEnd = '';
 let draftStart = '', draftEnd = '', calendarMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 let imageViewer, imageViewerImage, imageViewerCanvas, imageZoom = 1, imageFit = 1, imageTrigger;
+let imageViewerPortrait = false;
+
+function viewerImageSize() {
+    const sourcePortrait = imageViewerImage.naturalHeight > imageViewerImage.naturalWidth;
+    const rotated = sourcePortrait !== imageViewerPortrait;
+    return {
+        rotated,
+        width: rotated ? imageViewerImage.naturalHeight : imageViewerImage.naturalWidth,
+        height: rotated ? imageViewerImage.naturalWidth : imageViewerImage.naturalHeight,
+        rotation: imageViewerPortrait ? 'rotate(90deg)' : 'rotate(-90deg)'
+    };
+}
 
 function setImageZoom(value) {
     if (!imageViewerImage.naturalWidth) return;
     imageZoom = Math.max(0.5, Math.min(4, value));
-    const width = imageViewerImage.naturalWidth * imageFit * imageZoom;
-    const height = imageViewerImage.naturalHeight * imageFit * imageZoom;
+    const size = viewerImageSize();
+    const width = size.width * imageFit * imageZoom;
+    const height = size.height * imageFit * imageZoom;
     const viewport = imageViewerCanvas.parentElement;
     imageViewerCanvas.style.width = Math.max(viewport.clientWidth, width) + 'px';
     imageViewerCanvas.style.height = Math.max(viewport.clientHeight, height) + 'px';
-    imageViewerImage.style.width = width + 'px';
+    imageViewerImage.style.width = (size.rotated ? height : width) + 'px';
+    imageViewerImage.style.height = (size.rotated ? width : height) + 'px';
+    imageViewerImage.style.transform = size.rotated ? size.rotation : '';
     $('#rep-image-zoom-level').textContent = Math.round(imageZoom * 100) + '%';
 }
 
 function fitImageViewer() {
     if (!imageViewerImage.naturalWidth) return;
     const viewport = imageViewerImage.parentElement;
+    const size = viewerImageSize();
     imageFit = Math.min(
-        viewport.clientWidth / imageViewerImage.naturalWidth,
-        viewport.clientHeight / imageViewerImage.naturalHeight,
+        viewport.clientWidth / size.width,
+        viewport.clientHeight / size.height,
         1
     );
     setImageZoom(imageZoom);
@@ -87,9 +116,51 @@ function closeImageViewer() {
     if (imageTrigger) imageTrigger.focus();
 }
 
+function fitImageThumbnail(image) {
+    if (!image.complete || !image.naturalWidth) return;
+    const preview = image.closest('.rep-image-preview');
+    if (!preview) return;
+    const targetPortrait = image.closest('.rep-image-card').dataset.imageOrientation === 'portrait';
+    const sourcePortrait = image.naturalHeight > image.naturalWidth;
+    const rotated = sourcePortrait !== targetPortrait;
+    if (!rotated) {
+        image.classList.remove('rep-orientation-rotated');
+        image.style.removeProperty('width');
+        image.style.removeProperty('height');
+        image.style.removeProperty('transform');
+        return;
+    }
+
+    const bounds = preview.getBoundingClientRect();
+    const scale = Math.min(
+        bounds.width / image.naturalHeight,
+        bounds.height / image.naturalWidth
+    );
+    image.classList.add('rep-orientation-rotated');
+    image.style.width = image.naturalWidth * scale + 'px';
+    image.style.height = image.naturalHeight * scale + 'px';
+    image.style.transform = 'translate(-50%, -50%) ' +
+        (targetPortrait ? 'rotate(90deg)' : 'rotate(-90deg)');
+}
+
+function fitImageThumbnails() {
+    document.querySelectorAll('.rep-image-card img').forEach(image => {
+        if (image.complete) {
+            fitImageThumbnail(image);
+        } else if (!image.dataset.orientationListener) {
+            image.dataset.orientationListener = 'pending';
+            image.addEventListener('load', () => {
+                delete image.dataset.orientationListener;
+                fitImageThumbnail(image);
+            }, { once: true });
+        }
+    });
+}
+
 function openImageViewer(url, title, trigger) {
     imageTrigger = trigger;
-    imageZoom = 1;
+    imageViewerPortrait = trigger.dataset.imageOrientation === 'portrait';
+    imageZoom = 0.5;
     imageViewer.querySelector('.rep-image-viewer-title').textContent = title;
     imageViewerImage.alt = title;
     imageViewerImage.onload = () => {
@@ -151,6 +222,7 @@ function setupImageViewer() {
         if (event.key === '-') setImageZoom(imageZoom * 0.8);
     });
     window.addEventListener('resize', fitImageViewer);
+    window.addEventListener('resize', fitImageThumbnails);
     $('#app').addEventListener('click', event => {
         const trigger = event.target.closest('[data-image-url]');
         if (trigger) openImageViewer(trigger.dataset.imageUrl, trigger.dataset.imageTitle, trigger);
@@ -268,9 +340,9 @@ function selectedRecords() {
     }).sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
 }
 
-function folderCount(folderId, records) {
+function folderCount(folderId, records, runCount) {
     const images = records.filter(record => record.has_image);
-    if (folderId === 'all') return records.length;
+    if (folderId === 'all') return runCount;
     if (folderId === 'odo') return images.filter(record => categoryOf(record) === 'odo').length;
     if (folderId === 'fuel') return images.filter(record => ['petrol', 'diesel'].includes(categoryOf(record))).length;
     if (folderId === 'visit') return records.filter(record => categoryOf(record) === 'visit').length;
@@ -278,14 +350,15 @@ function folderCount(folderId, records) {
 }
 
 function renderSidebar(records) {
+    const runCount = REPORTS.filter(report => isDateInRange(reportDate(report))).length;
     return '<aside class="rep-sidebar" id="report-folders" aria-label="Record folders">' +
         '<div class="rep-sidebar-title">FOLDERS</div>' +
         folders.map(folder => {
-            const count = folderCount(folder.id, records);
+            const count = folderCount(folder.id, records, runCount);
             return '<button class="rep-folder' + (folder.child ? ' child' : '') +
                 (selectedFolder === folder.id ? ' active' : '') + '" data-folder="' + folder.id + '"' +
                 (folder.id === 'fuel' ? ' aria-label="All fuel bills"' : '') + '>' +
-                '<span class="rep-folder-icon">' + folder.icon + '</span><span class="rep-folder-name">' +
+                '<span class="rep-folder-icon">' + folderIcon(folder) + '</span><span class="rep-folder-name">' +
                 esc(folder.label) + '</span><span class="rep-folder-count">' + count + '</span></button>';
         }).join('') +
         '<a class="rep-back-link" href="/">← Back to run log</a></aside>';
@@ -334,9 +407,11 @@ function renderImages(records) {
         const time = record.at && !isNaN(new Date(record.at))
             ? new Date(record.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
             : 'Time unavailable';
+        const orientation = record.type === 'fuel' ? 'portrait' : 'landscape';
         return '<button class="rep-image-card" type="button" data-image-url="' + imageUrl +
-            '" data-image-title="' + esc(title) + '" aria-label="View ' + esc(title) + '">' +
-            '<img src="' + imageUrl + '" alt="' + esc(title) + '" loading="lazy">' +
+            '" data-image-title="' + esc(title) + '" data-image-orientation="' + orientation +
+            '" aria-label="View ' + esc(title) + '">' +
+            '<div class="rep-image-preview"><img src="' + imageUrl + '" alt="' + esc(title) + '" loading="lazy"></div>' +
             '<span><b>' + esc(title) + '</b><small>' + esc(fmtDate(recordDate(record))) + ' · ' +
             esc(time) + '</small></span></button>';
     }).join('');
@@ -365,7 +440,8 @@ function renderRecords(records) {
                 '</span><b>' + esc(formatValue(value)) + '</b></div>').join('');
         const imageLink = record.has_image && !['all', 'visit'].includes(selectedFolder)
             ? '<button class="rep-record-image" type="button" data-image-url="/report/image/' +
-              encodeURIComponent(record.id) + '?v=2" data-image-title="' +
+              encodeURIComponent(record.id) + '?v=2" data-image-orientation="' +
+              (record.type === 'fuel' ? 'portrait' : 'landscape') + '" data-image-title="' +
               esc(labels[record.type] || 'Uploaded image') + '">Open image</button>'
             : '';
         return '<article class="rep-record"><header><div><h3>' +
@@ -390,9 +466,10 @@ function renderRunKpis() {
         '<div class="rep-card"><b>' + runs.length + '</b><span>Runs</span></div>' +
         '<div class="rep-card"><b>' + km(runs.reduce((total, report) => total + (report.distance_km || 0), 0)) +
         '</b><span>Total distance (km)</span></div>' +
-        '<div class="rep-card"><b>' + inr(sum('petrol_amount')) + '</b><span>Total petrol</span></div>' +
-        '<div class="rep-card"><b>' + inr(sum('diesel_amount')) + '</b><span>Total diesel</span></div>' +
-        '<div class="rep-card"><b>' + inr(sum('balance_amount')) + '</b><span>Balance (collected − fuel)</span></div></section>';
+        '<div class="rep-card"><b>' + inr(sum('collected_amount')) + '</b><span>Total collected</span></div>' +
+        '<div class="rep-card"><b>' + inr(sum('petrol_amount') + sum('diesel_amount')) +
+        '</b><span>Total fuel bills</span></div>' +
+        '<div class="rep-card"><b>' + inr(sum('balance_amount')) + '</b><span>Balance</span></div></section>';
 }
 
 function renderRunSummary() {
@@ -449,6 +526,7 @@ function draw() {
         '<section class="rep-content">' + overview +
         (showImages ? renderImages(records) : '') +
         (isAllRecords ? renderRunSummary() : showRecordDetails ? renderRecords(records) : '') + '</section></div>';
+    fitImageThumbnails();
     const header = document.querySelector('.report-main>.top');
     header.querySelector('.rep-toolbar-heading')?.remove();
     const pageHeading = document.querySelector('.rep-toolbar-heading');

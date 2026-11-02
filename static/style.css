@@ -224,6 +224,7 @@ input:focus{outline:none;border-color:var(--focus);box-shadow:0 0 0 3px rgba(43,
 }
 @media (max-width:679px){
   main{width:min(100% - 36px,520px);padding:20px 0 36px}
+  #e{display:none}
   .top{margin-bottom:34px}
   .hero{gap:30px}
   .hero-copy{padding:0 1px}
