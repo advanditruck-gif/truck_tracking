@@ -365,14 +365,42 @@ async function start() {
     S.run = { id: Date.now(), start: new Date().toISOString(), due: null, end: null };
     const ok = await add('start_km', r.o, r.th, r.image, r.capturedAt);
     if (!ok) { S.run = null; keep(); render(); return; }
-    await visit();
+    await completeInitialSetup();
 }
-async function visit() {
+function initialRunSetup() {
+    const starts = ev('start_km');
+    const start = starts[starts.length - 1];
+    const startIndex = start ? S.ev.lastIndexOf(start) : -1;
+    const events = startIndex >= 0 ? S.ev.slice(startIndex) : [];
+    return {
+        hasVisit: events.some(event => event.t === 'visit'),
+        hasLocation: events.some(event => event.t === 'location')
+    };
+}
+async function completeInitialSetup() {
+    if (!S.run || S.run.end) return false;
+    let setup = initialRunSetup();
+    if (!setup.hasVisit && !(await visit(true))) return false;
+    setup = initialRunSetup();
+    if (!setup.hasLocation && !(await loc('Capture required location image'))) return false;
+    return true;
+}
+async function visit(required = false) {
+    const setup = initialRunSetup();
+    if (setup.hasVisit && !setup.hasLocation) {
+        await loc('Capture required location image');
+        return false;
+    }
     const o = await review('Business details', 'visit', {}); if (!o) return;
     const ok = await add('visit', o);
-    if (ok) await loc('Capture location image');
+    if (ok && !required) await loc('Capture location image');
+    return ok;
 }
 async function loc(t) {
+    if (!initialRunSetup().hasVisit) {
+        showToast('Save the required business visit before the location photo.');
+        return false;
+    }
     const r = await snap('geo', t || 'Upload current location image'); if (!r) return;
     const ok = await add('location', r.o, r.th, r.image);
     if (ok) {
@@ -380,8 +408,15 @@ async function loc(t) {
         S.run.notified = false;
         keep();
     }
+    return ok;
 }
 function fuel() {
+    const setup = initialRunSetup();
+    if (!setup.hasVisit || !setup.hasLocation) {
+        showToast('Complete the required business visit and location photo first.');
+        completeInitialSetup();
+        return;
+    }
     const m = modal('<h3>Choose fuel type</h3><p class="mu sub">Pick what you are refuelling.</p><button class="fuel-option" id="p"><span class="fuel-icon">P</span><span><b>Petrol</b><small>Generator, ₹1000 preset</small></span><span class="fuel-arrow">›</span></button><button class="fuel-option" id="d"><span class="fuel-icon">D</span><span><b>Diesel</b><small>Vehicle, ₹1500 preset</small></span><span class="fuel-arrow">›</span></button><button class="g" id="x">Cancel</button>', 'md-choice');
     const go = async (type, preset) => {
         m.remove();
@@ -437,6 +472,12 @@ function fuel() {
     m.querySelector('#x').onclick = () => m.remove();
 }
 async function stop() {
+    const setup = initialRunSetup();
+    if (!setup.hasVisit || !setup.hasLocation) {
+        showToast('Complete the required business visit and location photo before stopping the run.');
+        await completeInitialSetup();
+        return;
+    }
     if (!confirm('Stop today’s run?')) return;
     const r = await snap('cluster', 'Upload cluster image'); if (!r) return;
     S.run.end = new Date().toISOString();
@@ -479,12 +520,13 @@ function draw() {
     $('#status').innerHTML = '<span class="chip' + (r && !done ? ' live' : '') + '"><i></i>' + (!r ? 'Not started' : done ? 'Run closed' : 'Run in progress') + '</span>';
     if (!r) {
         const today = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: '2-digit', month: 'short' }).format(new Date()).replace(',', '').toUpperCase();
-        A.innerHTML = '<section class="hero"><div class="hero-copy"><div class="eyebrow">TODAY · ' + today + '</div><h2>Start today’s <em>run</em></h2><p>Photograph the odometer to open the log. We then ask for a location photo every 30 minutes and keep visits and fuel bills in one timeline.</p><div class="hero-actions"><button class="btn start-action" id="s">' + ico('play') + 'Start run</button><span class="start-meta">' + ico('clock') + 'Takes 10 seconds</span></div></div>' +
+        A.innerHTML = '<section class="hero"><div class="hero-copy"><div class="eyebrow">TODAY · ' + today + '</div><h2>Start today’s <em>run</em></h2><p>After the start odometer, save a business visit and current-location photo before adding fuel or stopping the run. Capture a new location photo every 30 minutes.</p><div class="hero-actions"><button class="btn start-action" id="s">' + ico('play') + 'Start run</button><span class="start-meta">' + ico('clock') + 'Takes 10 seconds</span></div></div>' +
             '<div class="idle-led"><div class="idle-led-head"><span>ODOMETER</span><span class="awaiting"><i></i>AWAITING PHOTO</span></div><div class="odo-digits" aria-label="Odometer awaiting start photo"><span>0</span><span>0</span><span>0</span><span>0</span></div><div class="idle-wait">' + ico('camera') + 'Waiting for the start photo</div><div class="idle-stats"><div><b>0 km</b><small>Distance</small></div><div><b>0</b><small>Visits</small></div><div><b>₹0</b><small>Fuel</small></div></div></div></section>' +
-            '<section class="steps" aria-label="How the run log works"><article class="step-card"><span class="step-number">01</span><span class="step-icon">' + ico('camera') + '</span><b>Snap the odometer</b><p>One photo opens today’s log.</p></article><article class="step-card"><span class="step-number">02</span><span class="step-icon">' + ico('pin') + '</span><b>Location check-ins</b><p>A gentle reminder every 30 minutes.</p></article><article class="step-card"><span class="step-number">03</span><span class="step-icon">' + ico('receipt') + '</span><b>Visits &amp; fuel bills</b><p>Everything in a single timeline.</p></article></section>' + (S.ev.length ? '<button class="btn ghost old-data" id="rs">Clear old data</button>' : '');
+            '<section class="steps" aria-label="How the run log works"><article class="step-card"><span class="step-number">01</span><span class="step-icon">' + ico('camera') + '</span><b>Snap the odometer</b><p>One photo opens today’s log.</p></article><article class="step-card"><span class="step-number">02</span><span class="step-icon">' + ico('store') + '</span><b>Save a business visit</b><p>Required before the run can continue.</p></article><article class="step-card"><span class="step-number">03</span><span class="step-icon">' + ico('pin') + '</span><b>Capture current location</b><p>Required at start, then every 30 minutes.</p></article></section>' + (S.ev.length ? '<button class="btn ghost old-data" id="rs">Clear old data</button>' : '');
         $('#s').onclick = start; $('#rs') && ($('#rs').onclick = reset); return
     }
     const sk = +ev('start_km')[0].d.km, ek = ev('stop_km')[0] ? +ev('stop_km')[0].d.km : null, sum = (t, k) => ev(t).reduce((a, e) => a + (+e.d[k] || 0), 0);
+    const setup = initialRunSetup(), setupIncomplete = !done && (!setup.hasVisit || !setup.hasLocation);
     const WIN = 30 * 60000, left = r.due ? r.due - Date.now() : null, over = !done && r.due && left <= 0, min = r.due ? Math.max(0, Math.ceil(left / 60000)) : 0, p = r.due ? Math.min(100, Math.max(0, (1 - left / WIN) * 100)) : 0;
     const ring = done ? '' : '<div class="ring' + (over ? ' is-over' : '') + '" style="--p:' + (over ? 100 : p.toFixed(1)) + '" role="img" aria-label="' + (over ? 'Location photo due now' : r.due ? 'Next location photo in ' + min + ' minutes' : 'No location photo yet') + '"><span><b>' + (over ? 'Now' : r.due ? min : '—') + '</b><small>' + (r.due && !over ? 'min to photo' : 'photo due') + '</small></span></div>';
     const panel = '<section class="led"><div class="led-main"><div><div class="readout xl">' + (done ? km(ek - sk) : km(sk)) + '</div><div class="readout-label">' + (done ? 'Distance driven (km)' : 'Start odometer (km)') + '</div></div>' + ring + '</div>' +
@@ -492,11 +534,19 @@ function draw() {
     const act = (id, ic, t, sm, cls) => '<button class="act' + (cls || '') + '" id="' + id + '">' + ico(ic) + '<span><strong>' + t + '</strong><small>' + sm + '</small></span>' + ico('chev', 'chev') + '</button>';
     const banner = over ? '<div class="due-banner" role="alert"><div><b>Location photo due</b><span>30 minutes have passed since the last one.</span></div><button class="btn" id="l2">Upload now</button></div>' : '';
     const controls = done ? '<div class="acts"><button class="btn lg" id="e">' + ico('download') + 'Export CSV</button><button class="btn ghost" id="rs">' + ico('again') + 'Start new day</button></div>' :
-        '<div class="acts">' + act('l', 'pin', 'Upload current location image', 'Geo-tagged camera photo', over ? ' is-due' : '') + act('v', 'store', 'New business visit', 'Business, area and amount collected') + act('f', 'fuel', 'Upload fuel bill', 'Petrol for the generator or diesel for the vehicle') + '</div>' +
-        '<button class="btn quiet" id="st">' + ico('stop') + 'Stop run</button><button class="link" id="dm">Demo: skip the 30-minute wait</button>';
+        setupIncomplete
+            ? '<div class="due-banner setup-required"><div><b>Complete run setup to continue</b><span>' +
+              (!setup.hasVisit ? 'Save a business visit first.' : 'Capture and save the current location photo.') +
+              '</span></div></div><div class="acts">' +
+              act('setup', !setup.hasVisit ? 'store' : 'pin',
+                  !setup.hasVisit ? 'Required: business visit' : 'Required: location photo',
+                  !setup.hasVisit ? 'Business, area and amount collected' : 'Capture and save a location image') +
+              '</div>'
+            : '<div class="acts">' + act('l', 'pin', 'Upload current location image', 'Geo-tagged camera photo', over ? ' is-due' : '') + act('v', 'store', 'New business visit', 'Business, area and amount collected') + act('f', 'fuel', 'Upload fuel bill', 'Petrol for the generator or diesel for the vehicle') + '</div>' +
+              '<button class="btn quiet" id="st">' + ico('stop') + 'Stop run</button><button class="link" id="dm">Demo: skip the 30-minute wait</button>';
     const tl = '<section class="tlwrap"><h3>Today’s timeline <span class="count">' + S.ev.length + '</span></h3><ol class="tl">' + S.ev.slice().reverse().map(e => '<li data-t="' + e.t + '">' + (e.th ? '<img src="' + e.th + '" alt="">' : '') + '<div class="tl-body"><div class="tl-head"><strong>' + N[e.t] + '</strong><time>' + new Date(e.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '</time></div><div class="kv">' + rows(e) + '</div></div></li>').join('') + '</ol></section>';
     A.innerHTML = '<div class="grid"><div>' + banner + panel + controls + '</div>' + tl + '</div>';
-    const b = (i, f) => $('#' + i) && ($('#' + i).onclick = f); b('l', () => loc()); b('l2', () => loc()); b('v', visit); b('f', fuel); b('st', stop); b('e', csv); b('rs', reset);
+    const b = (i, f) => $('#' + i) && ($('#' + i).onclick = f); b('l', () => loc()); b('l2', () => loc()); b('v', visit); b('setup', completeInitialSetup); b('f', fuel); b('st', stop); b('e', csv); b('rs', reset);
     b('dm', () => { r.due = Date.now() - 1; r.notified = false; keep(); render() })
 }
 setInterval(() => {

@@ -19,7 +19,7 @@ def _settings():
     return config.SUPABASE_URL, config.SUPABASE_SERVICE_ROLE_KEY
 
 
-def _request(method, endpoint, body=None, content_type=None, cache_control=None):
+def _request(method, endpoint, body=None, content_type=None, cache_control=None, upsert=False):
     base_url, key = _settings()
     headers = {
         "apikey": key,
@@ -30,6 +30,8 @@ def _request(method, endpoint, body=None, content_type=None, cache_control=None)
         headers["Content-Type"] = content_type
     if cache_control:
         headers["Cache-Control"] = cache_control
+    if upsert:
+        headers["x-upsert"] = "true"
     elif body is not None:
         headers["Content-Type"] = "application/json"
         data = json.dumps(body).encode("utf-8")
@@ -45,7 +47,13 @@ def _request(method, endpoint, body=None, content_type=None, cache_control=None)
         raise RuntimeError("Could not reach Supabase Storage.") from error
 
 
-def upload_image(path, image_bytes, content_type):
+def upload_image(
+    path,
+    image_bytes,
+    content_type,
+    upsert=False,
+    cache_control="max-age=86400",
+):
     bucket = quote(config.SUPABASE_STORAGE_BUCKET, safe="")
     object_path = quote(path, safe="/")
     _request(
@@ -53,7 +61,8 @@ def upload_image(path, image_bytes, content_type):
         f"/storage/v1/object/{bucket}/{object_path}",
         image_bytes,
         content_type=content_type,
-        cache_control="max-age=86400",
+        cache_control=cache_control,
+        upsert=upsert,
     )
 
 

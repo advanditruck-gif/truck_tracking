@@ -35,6 +35,108 @@ const folders = [
 ];
 
 let REPORTS = [], RECORDS = [], selectedFolder = 'all', dateFilter = '';
+let imageViewer, imageViewerImage, imageViewerCanvas, imageZoom = 1, imageFit = 1, imageTrigger;
+
+function setImageZoom(value) {
+    if (!imageViewerImage.naturalWidth) return;
+    imageZoom = Math.max(0.5, Math.min(4, value));
+    const width = imageViewerImage.naturalWidth * imageFit * imageZoom;
+    const height = imageViewerImage.naturalHeight * imageFit * imageZoom;
+    const viewport = imageViewerCanvas.parentElement;
+    imageViewerCanvas.style.width = Math.max(viewport.clientWidth, width) + 'px';
+    imageViewerCanvas.style.height = Math.max(viewport.clientHeight, height) + 'px';
+    imageViewerImage.style.width = width + 'px';
+    $('#rep-image-zoom-level').textContent = Math.round(imageZoom * 100) + '%';
+}
+
+function fitImageViewer() {
+    if (!imageViewerImage.naturalWidth) return;
+    const viewport = imageViewerImage.parentElement;
+    imageFit = Math.min(
+        viewport.clientWidth / imageViewerImage.naturalWidth,
+        viewport.clientHeight / imageViewerImage.naturalHeight,
+        1
+    );
+    setImageZoom(imageZoom);
+}
+
+function closeImageViewer() {
+    if (!imageViewer || imageViewer.hidden) return;
+    imageViewer.hidden = true;
+    document.body.classList.remove('rep-image-viewer-open');
+    imageViewerImage.removeAttribute('src');
+    if (imageTrigger) imageTrigger.focus();
+}
+
+function openImageViewer(url, title, trigger) {
+    imageTrigger = trigger;
+    imageZoom = 1;
+    imageViewer.querySelector('.rep-image-viewer-title').textContent = title;
+    imageViewerImage.alt = title;
+    imageViewerImage.onload = () => {
+        fitImageViewer();
+        imageViewer.querySelector('.rep-image-viewer-viewport').scrollTo(0, 0);
+    };
+    imageViewerImage.onerror = () => {
+        imageViewer.querySelector('.rep-image-viewer-title').textContent = 'Could not load image';
+    };
+    imageViewerImage.src = url;
+    imageViewer.hidden = false;
+    document.body.classList.add('rep-image-viewer-open');
+    imageViewer.querySelector('[data-image-viewer-close]').focus();
+}
+
+function setupImageViewer() {
+    imageViewer = document.createElement('div');
+    imageViewer.className = 'rep-image-viewer';
+    imageViewer.id = 'rep-image-viewer';
+    imageViewer.hidden = true;
+    imageViewer.setAttribute('role', 'dialog');
+    imageViewer.setAttribute('aria-modal', 'true');
+    imageViewer.setAttribute('aria-label', 'Image viewer');
+    imageViewer.innerHTML = '<div class="rep-image-viewer-panel">' +
+        '<header class="rep-image-viewer-header"><b class="rep-image-viewer-title"></b>' +
+        '<button type="button" class="rep-image-viewer-close" data-image-viewer-close aria-label="Close image viewer">×</button></header>' +
+        '<div class="rep-image-viewer-viewport"><div class="rep-image-viewer-canvas">' +
+        '<img class="rep-image-viewer-image" alt=""></div></div>' +
+        '<div class="rep-image-viewer-controls"><button type="button" data-image-zoom="-1" aria-label="Zoom out">−</button>' +
+        '<span id="rep-image-zoom-level" aria-live="polite">100%</span>' +
+        '<button type="button" data-image-zoom="1" aria-label="Zoom in">+</button>' +
+        '<button type="button" data-image-zoom-reset>Fit</button></div></div>';
+    document.body.append(imageViewer);
+    imageViewerImage = imageViewer.querySelector('.rep-image-viewer-image');
+    imageViewerCanvas = imageViewer.querySelector('.rep-image-viewer-canvas');
+
+    imageViewer.addEventListener('click', event => {
+        if (event.target === imageViewer || event.target.closest('[data-image-viewer-close]')) {
+            closeImageViewer();
+            return;
+        }
+        const zoomButton = event.target.closest('[data-image-zoom]');
+        if (zoomButton) {
+            setImageZoom(imageZoom * (Number(zoomButton.dataset.imageZoom) > 0 ? 1.25 : 0.8));
+        } else if (event.target.closest('[data-image-zoom-reset]')) {
+            imageZoom = 1;
+            fitImageViewer();
+            imageViewer.querySelector('.rep-image-viewer-viewport').scrollTo(0, 0);
+        }
+    });
+    imageViewer.querySelector('.rep-image-viewer-viewport').addEventListener('wheel', event => {
+        event.preventDefault();
+        setImageZoom(imageZoom * (event.deltaY < 0 ? 1.15 : 0.87));
+    }, { passive: false });
+    document.addEventListener('keydown', event => {
+        if (imageViewer.hidden) return;
+        if (event.key === 'Escape') closeImageViewer();
+        if (event.key === '+' || event.key === '=') setImageZoom(imageZoom * 1.25);
+        if (event.key === '-') setImageZoom(imageZoom * 0.8);
+    });
+    window.addEventListener('resize', fitImageViewer);
+    $('#app').addEventListener('click', event => {
+        const trigger = event.target.closest('[data-image-url]');
+        if (trigger) openImageViewer(trigger.dataset.imageUrl, trigger.dataset.imageTitle, trigger);
+    });
+}
 
 function categoryOf(record) {
     if (record.type === 'start_km' || record.type === 'stop_km') return 'odo';
@@ -121,17 +223,18 @@ function renderToolbar(imageCount = null) {
 function renderImages(records) {
     const images = records.filter(record => record.has_image);
     const cards = images.map(record => {
-        const imageUrl = '/report/image/' + encodeURIComponent(record.id);
+        const imageUrl = '/report/image/' + encodeURIComponent(record.id) + '?v=2';
         const fuel = record.data.fuel_for || record.data.product;
         const title = record.type === 'fuel' ? (fuel || 'Fuel bill') :
             (labels[record.type] || 'Uploaded image');
         const time = record.at && !isNaN(new Date(record.at))
             ? new Date(record.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
             : 'Time unavailable';
-        return '<a class="rep-image-card" href="' + imageUrl + '" target="_blank" rel="noopener">' +
+        return '<button class="rep-image-card" type="button" data-image-url="' + imageUrl +
+            '" data-image-title="' + esc(title) + '" aria-label="View ' + esc(title) + '">' +
             '<img src="' + imageUrl + '" alt="' + esc(title) + '" loading="lazy">' +
             '<span><b>' + esc(title) + '</b><small>' + esc(fmtDate(recordDate(record))) + ' · ' +
-            esc(time) + '</small></span></a>';
+            esc(time) + '</small></span></button>';
     }).join('');
     return '<section class="rep-section rep-image-section">' +
         (cards ? '<div class="rep-image-grid">' + cards + '</div>' :
@@ -157,8 +260,9 @@ function renderRecords(records) {
             .map(([key, value]) => '<div class="rep-detail"><span>' + esc(key.replace(/_/g, ' ')) +
                 '</span><b>' + esc(formatValue(value)) + '</b></div>').join('');
         const imageLink = record.has_image && !['all', 'visit'].includes(selectedFolder)
-            ? '<a class="rep-record-image" href="/report/image/' + encodeURIComponent(record.id) +
-              '" target="_blank" rel="noopener">Open image</a>'
+            ? '<button class="rep-record-image" type="button" data-image-url="/report/image/' +
+              encodeURIComponent(record.id) + '?v=2" data-image-title="' +
+              esc(labels[record.type] || 'Uploaded image') + '">Open image</button>'
             : '';
         return '<article class="rep-record"><header><div><h3>' +
             esc(labels[record.type] || record.type.replace(/_/g, ' ')) +
@@ -276,4 +380,5 @@ function draw() {
     if (csv) csv.onclick = exportCsv;
 }
 
+setupImageViewer();
 load();

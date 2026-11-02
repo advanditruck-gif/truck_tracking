@@ -16,6 +16,7 @@ import extractor
 import report as reportmod
 import supabase_storage
 import pwa_assets
+from image_utils import normalize_jpeg
 from extractor import extract
 
 app = Flask(__name__)
@@ -249,7 +250,7 @@ def report_event_image(event_id):
         response = redirect(supabase_storage.signed_image_url(
             event["d"]["image_path"], expires_in=7 * 24 * 60 * 60
         ))
-        response.headers["Cache-Control"] = "private, max-age=86400"
+        response.headers["Cache-Control"] = "no-store"
         return response
     except Exception as error:
         app.logger.error("Could not create report image URL: %s", error)
@@ -385,6 +386,11 @@ def api_add():
         image_bytes = image.read()
         if not image_bytes.startswith(b"\xff\xd8\xff"):
             return jsonify({"error": "The uploaded file is not a valid JPEG image."}), 415
+        try:
+            image_bytes, _ = normalize_jpeg(image_bytes)
+        except (OSError, ValueError) as error:
+            app.logger.warning("Could not normalize uploaded JPEG: %s", error)
+            return jsonify({"error": "The uploaded JPEG could not be decoded."}), 415
         if not config.SUPABASE_URL or not config.SUPABASE_SERVICE_ROLE_KEY:
             return jsonify({"error": "Private Supabase image storage is not configured on the server."}), 503
         image_path = f"events/{uuid4().hex}.jpg"
