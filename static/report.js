@@ -17,6 +17,24 @@ const todayStr = () => {
     const d = new Date(), p = n => String(n).padStart(2, '0');
     return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
 };
+const dateFromKey = key => {
+    const [year, month, day] = key.split('-').map(Number);
+    return new Date(year, month - 1, day);
+};
+const dateKey = date => {
+    const p = n => String(n).padStart(2, '0');
+    return date.getFullYear() + '-' + p(date.getMonth() + 1) + '-' + p(date.getDate());
+};
+const addDays = (date, days) => {
+    const result = new Date(date);
+    result.setDate(result.getDate() + days);
+    return result;
+};
+const fmtDateKey = key => dateFromKey(key).toLocaleDateString('en-GB', {
+    day: '2-digit', month: 'short', year: 'numeric'
+});
+const hasDateFilter = () => Boolean(dateStart && dateEnd);
+const isDateInRange = date => !hasDateFilter() || (date >= dateStart && date <= dateEnd);
 const labels = {
     start_km: 'Odometer — start',
     stop_km: 'Odometer — end',
@@ -34,7 +52,8 @@ const folders = [
     { id: 'visit', label: 'Business visits', icon: '▧' }
 ];
 
-let REPORTS = [], RECORDS = [], selectedFolder = 'all', dateFilter = '';
+let REPORTS = [], RECORDS = [], selectedFolder = 'all', dateStart = '', dateEnd = '';
+let draftStart = '', draftEnd = '', calendarMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 let imageViewer, imageViewerImage, imageViewerCanvas, imageZoom = 1, imageFit = 1, imageTrigger;
 
 function setImageZoom(value) {
@@ -159,6 +178,70 @@ function reportDate(report) {
     return localDateKey(raw) || raw;
 }
 
+function renderCalendarMonth(year, month) {
+    const first = new Date(year, month, 1);
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const offset = first.getDay();
+    const cells = [];
+    for (let i = 0; i < offset; i++) cells.push('<span class="rep-calendar-empty"></span>');
+    for (let day = 1; day <= daysInMonth; day++) {
+        const key = dateKey(new Date(year, month, day));
+        const selected = key === draftStart || key === draftEnd;
+        const inRange = draftStart && draftEnd && key > draftStart && key < draftEnd;
+        cells.push('<button type="button" class="rep-calendar-day' + (selected ? ' selected' : '') +
+            (inRange ? ' in-range' : '') + '" data-calendar-date="' + key + '" aria-pressed="' +
+            Boolean(selected) + '">' + day + '</button>');
+    }
+    while (cells.length % 7) cells.push('<span class="rep-calendar-empty"></span>');
+    const weekdays = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
+        .map(day => '<span class="rep-calendar-weekday">' + day + '</span>').join('');
+    const monthName = first.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    return '<div class="rep-calendar-month"><h3>' + monthName + '</h3><div class="rep-calendar-grid">' +
+        weekdays + cells.join('') + '</div></div>';
+}
+
+function renderDateCalendars() {
+    const secondMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1);
+    $('#rep-date-calendars').innerHTML =
+        renderCalendarMonth(calendarMonth.getFullYear(), calendarMonth.getMonth()) +
+        renderCalendarMonth(secondMonth.getFullYear(), secondMonth.getMonth());
+    const rangeText = draftStart && draftEnd
+        ? fmtDateKey(draftStart) + ' – ' + fmtDateKey(draftEnd)
+        : draftStart ? 'Select an end date' : 'Pick a start and an end date';
+    $('#rep-date-selection').textContent = rangeText;
+    $('#rep-date-apply').disabled = !(draftStart && draftEnd);
+}
+
+function setDateRange(start, end) {
+    dateStart = start;
+    dateEnd = end;
+    draw();
+}
+
+function applyPreset(preset) {
+    const today = dateFromKey(todayStr());
+    let start = '', end = '';
+    if (preset === 'today') start = end = dateKey(today);
+    if (preset === 'yesterday') start = end = dateKey(addDays(today, -1));
+    if (preset === 'last7') {
+        start = dateKey(addDays(today, -6));
+        end = dateKey(today);
+    }
+    if (preset === 'last30') {
+        start = dateKey(addDays(today, -29));
+        end = dateKey(today);
+    }
+    if (preset === 'thisMonth') {
+        start = dateKey(new Date(today.getFullYear(), today.getMonth(), 1));
+        end = dateKey(today);
+    }
+    if (preset === 'lastMonth') {
+        start = dateKey(new Date(today.getFullYear(), today.getMonth() - 1, 1));
+        end = dateKey(new Date(today.getFullYear(), today.getMonth(), 0));
+    }
+    setDateRange(start, end);
+}
+
 async function load() {
     const app = $('#app');
     app.innerHTML = '<p class="mu">Loading records…</p>';
@@ -176,7 +259,7 @@ async function load() {
 
 function selectedRecords() {
     return RECORDS.filter(record => {
-        if (dateFilter && recordDate(record) !== dateFilter) return false;
+        if (!isDateInRange(recordDate(record))) return false;
         const category = categoryOf(record);
         if (selectedFolder === 'all') return true;
         if (selectedFolder === 'odo') return category === 'odo';
@@ -209,15 +292,36 @@ function renderSidebar(records) {
 }
 
 function renderToolbar(imageCount = null) {
+    const dateLabel = hasDateFilter()
+        ? (dateStart === dateEnd ? fmtDateKey(dateStart) : fmtDateKey(dateStart) + ' – ' + fmtDateKey(dateEnd))
+        : 'All Time';
+    const headingDate = hasDateFilter()
+        ? 'Records for ' + (dateStart === dateEnd ? fmtDateKey(dateStart) : fmtDateKey(dateStart) + ' – ' + fmtDateKey(dateEnd))
+        : 'Full history from the database';
     return '<div class="rep-toolbar"><div class="rep-toolbar-heading"><h1>' +
         esc((folders.find(folder => folder.id === selectedFolder) || folders[0]).label) +
-        '</h1><p class="mu">' + (dateFilter ? 'Records for ' + esc(fmtDate(dateFilter)) : 'Full history from the database') +
+        '</h1><p class="mu">' + esc(headingDate) +
         '</p></div>' + (imageCount === null ? '' :
         '<div class="rep-image-toolbar-title"><h2>Images</h2><span class="rep-section-count">' + imageCount + '</span></div>') +
-        '<div class="rep-toolbar-actions"><label for="rep-date">Date</label>' +
-        '<input type="date" id="rep-date" value="' + esc(dateFilter) + '">' +
-        (dateFilter ? '<button class="g rep-clear" id="rep-clear" type="button">All dates</button>' : '') +
-        '</div></div>';
+        '<div class="rep-toolbar-actions"><span class="rep-date-label">Date</span><button class="rep-date-trigger" id="rep-date-trigger" type="button" ' +
+        'aria-haspopup="dialog" aria-expanded="false">' + esc(dateLabel) + '<span aria-hidden="true">▦</span></button></div></div>' +
+        '<div class="rep-date-picker-backdrop" id="rep-date-picker" hidden><section class="rep-date-picker" role="dialog" ' +
+        'aria-modal="true" aria-label="Filter records by date"><nav class="rep-date-presets" aria-label="Date range presets">' +
+        '<button type="button" data-date-preset="any">All Time</button>' +
+        '<button type="button" data-date-preset="today">Today</button>' +
+        '<button type="button" data-date-preset="yesterday">Yesterday</button>' +
+        '<button type="button" data-date-preset="last7">Last 7 days</button>' +
+        '<button type="button" data-date-preset="last30">Last 30 days</button>' +
+        '<button type="button" data-date-preset="thisMonth">This month</button>' +
+        '<button type="button" data-date-preset="lastMonth">Last month</button>' +
+        '<button type="button" data-date-preset="custom">Custom range</button></nav>' +
+        '<div class="rep-date-picker-main"><div class="rep-date-calendar-nav">' +
+        '<button type="button" data-calendar-nav="-1" aria-label="Previous month">‹</button>' +
+        '<div class="rep-date-calendars" id="rep-date-calendars"></div>' +
+        '<button type="button" data-calendar-nav="1" aria-label="Next month">›</button></div>' +
+        '<footer class="rep-date-picker-footer"><span id="rep-date-selection" aria-live="polite"></span>' +
+        '<div><button type="button" class="g" data-date-cancel>Cancel</button>' +
+        '<button type="button" data-date-apply id="rep-date-apply" disabled>Apply</button></div></footer></div></section></div>';
 }
 
 function renderImages(records) {
@@ -280,7 +384,7 @@ function renderRecords(records) {
 }
 
 function renderRunKpis() {
-    const runs = REPORTS.filter(report => !dateFilter || reportDate(report) === dateFilter);
+    const runs = REPORTS.filter(report => isDateInRange(reportDate(report)));
     const sum = key => runs.reduce((total, report) => total + (+report[key] || 0), 0);
     return '<section class="rep-summary">' +
         '<div class="rep-card"><b>' + runs.length + '</b><span>Runs</span></div>' +
@@ -293,7 +397,7 @@ function renderRunKpis() {
 
 function renderRunSummary() {
     if (selectedFolder !== 'all') return '';
-    const runs = REPORTS.filter(report => !dateFilter || reportDate(report) === dateFilter);
+    const runs = REPORTS.filter(report => isDateInRange(reportDate(report)));
     const rows = runs.map(report => '<tr><td>' + esc(fmtDate(report.date)) + '</td>' +
         '<td>' + km(report.start_km) + '</td><td>' + esc(report.start_time || '—') + '</td>' +
         '<td>' + km(report.end_km) + '</td><td>' + esc(report.end_time || '—') + '</td>' +
@@ -312,7 +416,7 @@ function renderRunSummary() {
 }
 
 function exportCsv() {
-    const rows = REPORTS.filter(report => !dateFilter || reportDate(report) === dateFilter);
+    const rows = REPORTS.filter(report => isDateInRange(reportDate(report)));
     const header = ['date', 'start_km', 'start_time', 'end_km', 'end_time', 'distance_km',
         'petrol_amount', 'diesel_amount', 'collected_amount', 'balance_amount', 'areas_covered', 'status'];
     const lines = [header].concat(rows.map(report => [
@@ -331,7 +435,7 @@ function exportCsv() {
 
 function draw() {
     const records = selectedRecords();
-    const datedRecords = dateFilter ? RECORDS.filter(record => recordDate(record) === dateFilter) : RECORDS;
+    const datedRecords = RECORDS.filter(record => isDateInRange(recordDate(record)));
     const showImages = ['odo', 'fuel', 'petrol', 'diesel', 'location'].includes(selectedFolder);
     const imageCount = showImages ? records.filter(record => record.has_image).length : null;
     const showRecordDetails = !['all', 'odo'].includes(selectedFolder);
@@ -369,13 +473,71 @@ function draw() {
     document.querySelectorAll('[data-folder]').forEach(button => {
         button.onclick = () => { selectedFolder = button.dataset.folder; closeFolderMenu(); draw() };
     });
-    document.onkeydown = event => {
-        if (event.key === 'Escape') closeFolderMenu();
-    };
     if (!window.matchMedia('(max-width: 640px)').matches) closeFolderMenu();
-    $('#rep-date').onchange = event => { dateFilter = event.target.value; draw() };
-    const clear = $('#rep-clear');
-    if (clear) clear.onclick = () => { dateFilter = ''; draw() };
+    const picker = $('#rep-date-picker');
+    const dateTrigger = $('#rep-date-trigger');
+    const closeDatePicker = () => {
+        picker.hidden = true;
+        dateTrigger.setAttribute('aria-expanded', 'false');
+    };
+    document.onkeydown = event => {
+        if (event.key === 'Escape') {
+            closeDatePicker();
+            closeFolderMenu();
+        }
+    };
+    dateTrigger.onclick = () => {
+        draftStart = dateStart;
+        draftEnd = dateEnd;
+        const month = draftStart ? dateFromKey(draftStart) : new Date();
+        calendarMonth = new Date(month.getFullYear(), month.getMonth(), 1);
+        renderDateCalendars();
+        picker.hidden = false;
+        dateTrigger.setAttribute('aria-expanded', 'true');
+    };
+    picker.onclick = event => {
+        if (event.target === picker || event.target.closest('[data-date-cancel]')) {
+            closeDatePicker();
+            return;
+        }
+        const presetButton = event.target.closest('[data-date-preset]');
+        if (presetButton) {
+            const preset = presetButton.dataset.datePreset;
+            if (preset === 'any') {
+                setDateRange('', '');
+            } else if (preset === 'custom') {
+                presetButton.classList.add('active');
+                return;
+            } else {
+                applyPreset(preset);
+            }
+            return;
+        }
+        const monthButton = event.target.closest('[data-calendar-nav]');
+        if (monthButton) {
+            calendarMonth.setMonth(calendarMonth.getMonth() + Number(monthButton.dataset.calendarNav));
+            renderDateCalendars();
+            return;
+        }
+        const dayButton = event.target.closest('[data-calendar-date]');
+        if (dayButton) {
+            const selectedDate = dayButton.dataset.calendarDate;
+            if (!draftStart || draftEnd) {
+                draftStart = selectedDate;
+                draftEnd = '';
+            } else if (selectedDate < draftStart) {
+                draftEnd = draftStart;
+                draftStart = selectedDate;
+            } else {
+                draftEnd = selectedDate;
+            }
+            renderDateCalendars();
+            return;
+        }
+        if (event.target.closest('[data-date-apply]') && draftStart && draftEnd) {
+            setDateRange(draftStart, draftEnd);
+        }
+    };
     const csv = $('#rep-csv');
     if (csv) csv.onclick = exportCsv;
 }
