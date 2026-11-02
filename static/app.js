@@ -535,9 +535,9 @@ function draw() {
     const banner = over ? '<div class="due-banner" role="alert"><div><b>Location photo due</b><span>30 minutes have passed since the last one.</span></div><button class="btn" id="l2">Upload now</button></div>' : '';
     const controls = done ? '<div class="acts"><button class="btn lg" id="e">' + ico('download') + 'Export CSV</button><button class="btn ghost" id="rs">' + ico('again') + 'Start new day</button></div>' :
         setupIncomplete
-            ? '<div class="due-banner setup-required"><div><b>Complete run setup to continue</b><span>' +
+            ? '<button class="due-banner setup-required" id="setup-next" type="button"><div><b>Complete run setup to continue</b><span>' +
               (!setup.hasVisit ? 'Save a business visit first.' : 'Capture and save the current location photo.') +
-              '</span></div></div><div class="acts">' +
+              '</span></div></button><div class="acts">' +
               act('setup', !setup.hasVisit ? 'store' : 'pin',
                   !setup.hasVisit ? 'Required: business visit' : 'Required: location photo',
                   !setup.hasVisit ? 'Business, area and amount collected' : 'Capture and save a location image') +
@@ -546,7 +546,7 @@ function draw() {
               '<button class="btn quiet" id="st">' + ico('stop') + 'Stop run</button><button class="link" id="dm">Demo: skip the 30-minute wait</button>';
     const tl = '<section class="tlwrap"><h3>Today’s timeline <span class="count">' + S.ev.length + '</span></h3><ol class="tl">' + S.ev.slice().reverse().map(e => '<li data-t="' + e.t + '">' + (e.th ? '<img src="' + e.th + '" alt="">' : '') + '<div class="tl-body"><div class="tl-head"><strong>' + N[e.t] + '</strong><time>' + new Date(e.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '</time></div><div class="kv">' + rows(e) + '</div></div></li>').join('') + '</ol></section>';
     A.innerHTML = '<div class="grid"><div>' + banner + panel + controls + '</div>' + tl + '</div>';
-    const b = (i, f) => $('#' + i) && ($('#' + i).onclick = f); b('l', () => loc()); b('l2', () => loc()); b('v', visit); b('setup', completeInitialSetup); b('f', fuel); b('st', stop); b('e', csv); b('rs', reset);
+    const b = (i, f) => $('#' + i) && ($('#' + i).onclick = f); b('l', () => loc()); b('l2', () => loc()); b('v', visit); b('setup', completeInitialSetup); b('setup-next', completeInitialSetup); b('f', fuel); b('st', stop); b('e', csv); b('rs', reset);
     b('dm', () => { r.due = Date.now() - 1; r.notified = false; keep(); render() })
 }
 setInterval(() => {

@@ -101,6 +101,8 @@ button.w{background:var(--wr);color:#fff}
 .grid{display:grid;gap:22px}.due-banner{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:16px;padding:14px 16px;border:1px solid var(--amber);border-radius:16px;background:var(--amber-soft)}
 .due-banner b{display:block}.due-banner span{color:var(--mu);font-size:13px}
 .due-banner .btn{width:auto;margin:0;min-height:44px;flex:none}
+.due-banner.setup-required{justify-content:flex-start;width:100%;margin:16px 0 0;text-align:left;color:var(--ink);font:inherit;cursor:pointer}
+.due-banner.setup-required>div{width:100%}
 .acts{display:grid;gap:10px;margin-top:16px}
 .act,.fuel-option{display:flex;align-items:center;gap:14px;width:100%;min-height:68px;margin:0;padding:12px 16px;border:1px solid var(--line);border-radius:16px;background:var(--surface);color:var(--ink);text-align:left;font-weight:500}
 .act>.ico:first-child{width:42px;height:42px;padding:10px;border-radius:12px;background:var(--raised)}
