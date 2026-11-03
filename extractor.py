@@ -28,6 +28,13 @@ def _clean(d):
         digits = re.sub(r"[^\d]", "", s)
         d["km"] = int(digits) if digits else None
 
+    if d.get("hours") not in (None, ""):
+        match = re.search(r"\d+(?:[.,]\d+)?", str(d["hours"]))
+        try:
+            d["hours"] = float(match.group(0).replace(",", ".")) if match else None
+        except ValueError:
+            d["hours"] = None
+
     # Check common aliases for date / time:
     if d.get("date") in (None, ""):
         for alias in ("display_date", "reading_date"):

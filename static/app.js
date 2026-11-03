@@ -9,9 +9,10 @@ const showToast = (txt, ms = 3200) => {
 const keep = () => { try { localStorage.setItem(K, JSON.stringify(S)) } catch (e) { } };
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 let sample = null; (async () => { try { if (window.claude) sample = await claude.use('sample') } catch (e) { } })();
-const FIELDS = { cluster: ['km', 'date', 'time'], geo: ['date', 'time', 'road', 'location', 'district', 'state', 'gps'], fuel: ['date', 'time', 'receipt_no', 'product', 'rate', 'volume', 'amount', 'vehicle_no'], visit: ['business_name', 'area', 'amount_collected'] };
+const FIELDS = { cluster: ['km', 'date', 'time'], generator: ['hours'], geo: ['date', 'time', 'road', 'location', 'district', 'state', 'gps'], fuel: ['date', 'time', 'receipt_no', 'product', 'rate', 'volume', 'amount', 'vehicle_no'], visit: ['business_name', 'area', 'amount_collected'] };
 const P = {
     cluster: 'Read the vehicle instrument cluster. Prioritize the odometer value shown beside or above "ODO" (usually near the bottom of the display); ignore people, hands, reflections, and other dashboard values. Transcribe the odometer digits exactly as a number, without units or separators. Also read the displayed date and time if legible. Always return all three keys, using null only for a value that is genuinely unreadable. Return valid JSON only, in this shape: {"km": 7148, "date": "2026-10-28", "time": "20:00"}. Use null for unreadable values and 24-hour time.',
+    generator: 'Read the cumulative generator hour-meter reading only, usually followed by H or an hours symbol (for example 209 H means 209 hours). Ignore voltage, frequency, RPM and model numbers. Return JSON only: {"hours": 209}. Use null if unreadable.',
     geo: 'GPS-stamped camera photo. Read the overlay text. Return JSON {"date":"YYYY-MM-DD","time":"HH:MM" 24h,"road":"street line","location":"locality line","district":"","state":"","gps":"lat,lng if visible else empty"}.',
     fuel: 'Fuel pump bill, layout varies. Return JSON {"date":"YYYY-MM-DD","time":"HH:MM" 24h,"receipt_no":"receipt/voucher no, the unique id","product":"","rate":number,"volume":number,"amount":number,"vehicle_no":""}.'
 };
@@ -137,8 +138,9 @@ function shoot(title) {
         fb.onchange = async () => fb.files[0] && end(await shrink(fb.files[0]));
     })
 }
-const LBL = { km: 'Odometer (km)', business_name: 'Business name', amount_collected: 'Amount collected (₹)', receipt_no: 'Receipt or voucher no.', vehicle_no: 'Vehicle no.', gps: 'GPS', rate: 'Rate (₹/L)', volume: 'Volume (L)', amount: 'Amount (₹)' }, NARROW = ['date', 'time', 'rate', 'volume', 'amount', 'district', 'state', 'product', 'vehicle_no'];
+const LBL = { km: 'Odometer (km)', hours: 'Generator hours', business_name: 'Business name', amount_collected: 'Amount collected (₹)', receipt_no: 'Receipt or voucher no.', vehicle_no: 'Vehicle no.', gps: 'GPS', rate: 'Rate (₹/L)', volume: 'Volume (L)', amount: 'Amount (₹)' }, NARROW = ['date', 'time', 'rate', 'volume', 'amount', 'district', 'state', 'product', 'vehicle_no'];
 const validOdometer = value => /^\d+(?:\.\d+)?$/.test(String(value ?? '').replace(/,/g, '').trim());
+const validGeneratorHours = value => /^\d+(?:\.\d+)?$/.test(String(value ?? '').trim()) && Number(value) >= 0;
 async function review(title, kind, vals, th, note) {
     if (kind === 'visit') return reviewVisit(vals);
     const m = modal('<h3>' + title + '</h3><p class="mu sub">Check the detected values, then save. Cancel to retake the photo.</p>' + (th ? '<img class="th" src="' + th + '" alt="">' : '') + (note ? '<p class="note' + (/failed|No values|Nothing|not read/i.test(note) ? ' err' : '') + '">' + esc(note) + '</p>' : '') + '<div id="fl"></div><div class="row"><button class="g" id="x">Cancel</button><button id="ok">Save</button></div>', 'md-review');
@@ -151,8 +153,28 @@ async function review(title, kind, vals, th, note) {
         if (!NARROW.includes(k)) l.className = 'wide';
         const i = document.createElement('input');
         i.value = vals[k] ?? '';
-        i.readOnly = !(kind === 'geo' && k !== 'date' && k !== 'time');
+        i.readOnly = !(kind === 'geo' && k !== 'date' && k !== 'time') && !(kind === 'generator' && k === 'hours');
         ins[k] = i;
+
+        if (kind === 'generator' && k === 'hours') {
+            i.type = 'number';
+            i.min = '0';
+            i.step = 'any';
+            i.inputMode = 'decimal';
+            const error = document.createElement('small');
+            error.className = 'field-error';
+            error.textContent = 'Generator hour reading is required. Cancel and retake the photo.';
+            const updateGeneratorValidity = () => {
+                const valid = validGeneratorHours(i.value);
+                save.disabled = !valid;
+                error.hidden = valid;
+            };
+            l.append(i, error);
+            i.addEventListener('input', updateGeneratorValidity);
+            updateGeneratorValidity();
+            m.querySelector('#fl').append(l);
+            return;
+        }
 
         if (kind === 'geo' && k === 'gps') {
             const wrap = document.createElement('div');
@@ -213,6 +235,7 @@ async function review(title, kind, vals, th, note) {
         save.onclick = () => {
             const o = {};
             for (const k in ins) o[k] = ins[k].value.trim();
+            if (kind === 'generator') o.hours = Number(o.hours);
             m.remove();
             res(o);
         };
@@ -421,7 +444,7 @@ async function snap(kind, title, extra = {}) {
             v.time = v.time || captureTime;
         }
     }
-    const err = d && d._error; if (d) delete d._error; const hasValues = FIELDS[kind].some(k => d && d[k] != null && String(d[k]).trim() !== ''); const note = kind === 'geo' ? 'Address lookup uses phone GPS via OpenStreetMap (© OpenStreetMap contributors).' + (geoError ? ' ' + geoError : '') : (err ? 'Reading failed: ' + err : (!hasValues ? 'No values returned. Server replied: ' + JSON.stringify(d) + ' (open /api/ping to check the server version)' : (kind === 'cluster' && !validOdometer(v.km) ? 'The odometer was not read. Cancel and retake the photo.' : '')));
+    const err = d && d._error; if (d) delete d._error; const hasValues = FIELDS[kind].some(k => d && d[k] != null && String(d[k]).trim() !== ''); const note = kind === 'geo' ? 'Address lookup uses phone GPS via OpenStreetMap (© OpenStreetMap contributors).' + (geoError ? ' ' + geoError : '') : (err ? 'Reading failed: ' + err : (!hasValues ? 'No values returned. Server replied: ' + JSON.stringify(d) + ' (open /api/ping to check the server version)' : (kind === 'cluster' && !validOdometer(v.km) ? 'The odometer was not read. Cancel and retake the photo.' : (kind === 'generator' && !validGeneratorHours(v.hours) ? 'The generator hour-meter reading was not read. Cancel and retake the photo.' : ''))));
     const o = await review(title, kind, v, URL.createObjectURL(b), note);
     return o && { o, th, image: b, capturedAt: capturedAt.toISOString() }
 }
@@ -434,19 +457,30 @@ async function start() {
     if (!ok) { S.run = null; keep(); render(); return; }
     await completeInitialSetup();
 }
+async function captureGenerator(eventType, title) {
+    const reading = await snap('generator', title);
+    if (!reading) return false;
+    return add(eventType, reading.o, reading.th, reading.image, reading.capturedAt);
+}
 function initialRunSetup() {
     const starts = ev('start_km');
     const start = starts[starts.length - 1];
     const startIndex = start ? S.ev.lastIndexOf(start) : -1;
     const events = startIndex >= 0 ? S.ev.slice(startIndex) : [];
     return {
+        events,
+        hasGeneratorStart: events.some(event => event.t === 'generator_start'),
         hasVisit: events.some(event => event.t === 'visit'),
-        hasLocation: events.some(event => event.t === 'location')
+        hasLocation: events.some(event => event.t === 'location'),
+        hasStopKm: events.some(event => event.t === 'stop_km'),
+        hasGeneratorStop: events.some(event => event.t === 'generator_stop')
     };
 }
 async function completeInitialSetup() {
     if (!S.run || S.run.end) return false;
     let setup = initialRunSetup();
+    if (!setup.hasGeneratorStart && !(await captureGenerator('generator_start', 'Upload generator hour meter — start'))) return false;
+    setup = initialRunSetup();
     if (!setup.hasVisit && !(await visit(true))) return false;
     setup = initialRunSetup();
     if (!setup.hasLocation && !(await loc('Capture required location image'))) return false;
@@ -464,8 +498,9 @@ async function visit(required = false) {
     return ok;
 }
 async function loc(t) {
-    if (!initialRunSetup().hasVisit) {
-        showToast('Save the required business visit before the location photo.');
+    const setup = initialRunSetup();
+    if (!setup.hasGeneratorStart || !setup.hasVisit) {
+        showToast('Save the generator start reading and required business visit before the location photo.');
         return false;
     }
     const r = await snap('geo', t || 'Upload current location image'); if (!r) return;
@@ -479,8 +514,8 @@ async function loc(t) {
 }
 function fuel() {
     const setup = initialRunSetup();
-    if (!setup.hasVisit || !setup.hasLocation) {
-        showToast('Complete the required business visit and location photo first.');
+    if (!setup.hasGeneratorStart || !setup.hasVisit || !setup.hasLocation) {
+        showToast('Complete the generator reading, business visit and location photo first.');
         completeInitialSetup();
         return;
     }
@@ -540,16 +575,23 @@ function fuel() {
 }
 async function stop() {
     const setup = initialRunSetup();
-    if (!setup.hasVisit || !setup.hasLocation) {
-        showToast('Complete the required business visit and location photo before stopping the run.');
+    if (!setup.hasGeneratorStart || !setup.hasVisit || !setup.hasLocation) {
+        showToast('Complete the generator reading, business visit and location photo before stopping the run.');
         await completeInitialSetup();
         return;
     }
     if (!confirm('Stop today’s run?')) return;
-    const r = await snap('cluster', 'Upload cluster image'); if (!r) return;
+    let boundary = initialRunSetup();
+    if (!boundary.hasStopKm) {
+        const odometer = await snap('cluster', 'Upload cluster image'); if (!odometer) return;
+        if (!(await add('stop_km', odometer.o, odometer.th, odometer.image, odometer.capturedAt))) return;
+    }
+    boundary = initialRunSetup();
+    if (!boundary.hasGeneratorStop &&
+        !(await captureGenerator('generator_stop', 'Upload generator hour meter — stop'))) return;
     S.run.end = new Date().toISOString();
-    const ok = await add('stop_km', r.o, r.th, r.image, r.capturedAt);
-    if (!ok) { S.run.end = null; keep(); }
+    keep();
+    render();
 }
 function reset() { if (confirm('Clear today’s data from this device? Export CSV first.')) { S = { run: null, ev: [] }; keep(); render() } }
 async function csv() {
@@ -559,7 +601,7 @@ async function csv() {
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], { type: 'text/csv' })); a.download = name; a.click()
 }
 // ---- render
-const N = { start_km: 'Run started', visit: 'Business visit', location: 'Location photo', fuel: 'Fuel bill', other_expense: 'Other expense', stop_km: 'Run stopped' };
+const N = { start_km: 'Run started', generator_start: 'Generator hours — start', generator_stop: 'Generator hours — stop', visit: 'Business visit', location: 'Location photo', fuel: 'Fuel bill', other_expense: 'Other expense', stop_km: 'Run stopped' };
 const ev = t => S.ev.filter(e => e.t === t);
 const IC = {
     camera: '<path d="M4 8h3l1.5-2h7L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>', pin: '<path d="M12 21s7-6.2 7-11a7 7 0 10-14 0c0 4.8 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/>',
@@ -573,6 +615,8 @@ const km = v => v !== '' && v != null && Number.isFinite(+v) ? (+v).toLocaleStri
 const odo = d => [['Odometer', d.km && km(d.km) + ' km'], ['Read at', [d.date, d.time].filter(Boolean).join(', ')]];
 const SUM = {
     start_km: odo, stop_km: odo,
+    generator_start: d => [['Generator hours', d.hours != null && Number.isFinite(Number(d.hours)) ? Number(d.hours).toLocaleString('en-IN', { maximumFractionDigits: 2 }) + ' h' : null]],
+    generator_stop: d => [['Generator hours', d.hours != null && Number.isFinite(Number(d.hours)) ? Number(d.hours).toLocaleString('en-IN', { maximumFractionDigits: 2 }) + ' h' : null]],
     visit: d => [['Business', d.business_name], ['Area', Array.isArray(d.area) ? d.area.join(', ') : d.area], ['Collected', d.amount_collected && inr(d.amount_collected)]],
     location: d => [['Place', [d.road, d.location].filter(Boolean).join(', ')], ['Region', [d.district, d.state].filter(Boolean).join(', ')], ['GPS', d.gps]],
     fuel: d => [['Fuel', d.fuel_for || d.product], ['Amount', d.amount && inr(d.amount)], ['Volume', d.volume && d.volume + ' L'], ['Receipt', d.receipt_no], ['Check', d.flag]],
@@ -588,27 +632,33 @@ function draw() {
     $('#status').innerHTML = '<span class="chip' + (r && !done ? ' live' : '') + '"><i></i>' + (!r ? 'Not started' : done ? 'Run closed' : 'Run in progress') + '</span>';
     if (!r) {
         const today = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: '2-digit', month: 'short' }).format(new Date()).replace(',', '').toUpperCase();
-        A.innerHTML = '<section class="hero"><div class="hero-copy"><div class="eyebrow">TODAY · ' + today + '</div><h2>Start today’s <em>run</em></h2><p>After the start odometer, save a business visit and current-location photo before adding fuel or stopping the run. Capture a new location photo every 30 minutes.</p><div class="hero-actions"><button class="btn start-action" id="s">' + ico('play') + 'Start run</button><span class="start-meta">' + ico('clock') + 'Takes 10 seconds</span></div></div>' +
+        A.innerHTML = '<section class="hero"><div class="hero-copy"><div class="eyebrow">TODAY · ' + today + '</div><h2>Start today’s <em>run</em></h2><p>After the start odometer and generator meter, save a business visit and current-location photo before adding fuel or stopping the run. Capture a new location photo every 30 minutes.</p><div class="hero-actions"><button class="btn start-action" id="s">' + ico('play') + 'Start run</button><span class="start-meta">' + ico('clock') + '2 photos to start</span></div></div>' +
             '<div class="idle-led"><div class="idle-led-head"><span>ODOMETER</span><span class="awaiting"><i></i>AWAITING PHOTO</span></div><div class="odo-digits" aria-label="Odometer awaiting start photo"><span>0</span><span>0</span><span>0</span><span>0</span></div><div class="idle-wait">' + ico('camera') + 'Waiting for the start photo</div><div class="idle-stats"><div><b>0 km</b><small>Distance</small></div><div><b>0</b><small>Visits</small></div><div><b>₹0</b><small>Fuel</small></div></div></div></section>' +
-            '<section class="steps" aria-label="How the run log works"><article class="step-card"><span class="step-number">01</span><span class="step-icon">' + ico('camera') + '</span><b>Snap the odometer</b><p>One photo opens today’s log.</p></article><article class="step-card"><span class="step-number">02</span><span class="step-icon">' + ico('store') + '</span><b>Save a business visit</b><p>Required before the run can continue.</p></article><article class="step-card"><span class="step-number">03</span><span class="step-icon">' + ico('pin') + '</span><b>Capture current location</b><p>Required at start, then every 30 minutes.</p></article></section>' + (S.ev.length ? '<button class="btn ghost old-data" id="rs">Clear old data</button>' : '');
+            '<section class="steps" aria-label="How the run log works"><article class="step-card"><span class="step-number">01</span><span class="step-icon">' + ico('camera') + '</span><b>Snap the odometer</b><p>One photo opens today’s log.</p></article><article class="step-card"><span class="step-number">02</span><span class="step-icon">' + ico('camera') + '</span><b>Snap the generator meter</b><p>Save its starting hour reading.</p></article><article class="step-card"><span class="step-number">03</span><span class="step-icon">' + ico('store') + '</span><b>Save a business visit</b><p>Required before the run can continue.</p></article><article class="step-card"><span class="step-number">04</span><span class="step-icon">' + ico('pin') + '</span><b>Capture current location</b><p>Required at start, then every 30 minutes.</p></article></section>' + (S.ev.length ? '<button class="btn ghost old-data" id="rs">Clear old data</button>' : '');
         $('#s').onclick = start; $('#rs') && ($('#rs').onclick = reset); return
     }
     const sk = +ev('start_km')[0].d.km, ek = ev('stop_km')[0] ? +ev('stop_km')[0].d.km : null, sum = (t, k) => ev(t).reduce((a, e) => a + (+e.d[k] || 0), 0);
-    const setup = initialRunSetup(), setupIncomplete = !done && (!setup.hasVisit || !setup.hasLocation);
+    const setup = initialRunSetup(), setupIncomplete = !done && (!setup.hasGeneratorStart || !setup.hasVisit || !setup.hasLocation);
+    const generatorStart = setup.events.find(event => event.t === 'generator_start');
+    const generatorStop = setup.events.find(event => event.t === 'generator_stop');
+    const startHours = generatorStart && Number.isFinite(Number(generatorStart.d.hours)) ? Number(generatorStart.d.hours) : null;
+    const stopHours = generatorStop && Number.isFinite(Number(generatorStop.d.hours)) ? Number(generatorStop.d.hours) : null;
+    const formatHours = value => value == null ? '—' : value.toLocaleString('en-IN', { maximumFractionDigits: 2 }) + ' h';
     const WIN = 30 * 60000, left = r.due ? r.due - Date.now() : null, over = !done && r.due && left <= 0, min = r.due ? Math.max(0, Math.ceil(left / 60000)) : 0, p = r.due ? Math.min(100, Math.max(0, (1 - left / WIN) * 100)) : 0;
     const ring = done ? '' : '<div class="ring' + (over ? ' is-over' : '') + '" style="--p:' + (over ? 100 : p.toFixed(1)) + '" role="img" aria-label="' + (over ? 'Location photo due now' : r.due ? 'Next location photo in ' + min + ' minutes' : 'No location photo yet') + '"><span><b>' + (over ? 'Now' : r.due ? min : '—') + '</b><small>' + (r.due && !over ? 'min to photo' : 'photo due') + '</small></span></div>';
     const panel = '<section class="led"><div class="led-main"><div><div class="readout xl">' + (done ? km(ek - sk) : km(sk)) + '</div><div class="readout-label">' + (done ? 'Distance driven (km)' : 'Start odometer (km)') + '</div></div>' + ring + '</div>' +
-        '<div class="led-row"><div><div class="readout">' + inr(sum('visit', 'amount_collected')) + '</div><div class="readout-label">Collected</div></div><div><div class="readout">' + inr(sum('fuel', 'amount')) + '</div><div class="readout-label">Fuel spent</div></div></div></section>';
+        '<div class="led-row"><div><div class="readout">' + inr(sum('visit', 'amount_collected')) + '</div><div class="readout-label">Collected</div></div><div><div class="readout">' + inr(sum('fuel', 'amount')) + '</div><div class="readout-label">Fuel spent</div></div></div>' +
+        '<div class="led-row generator-row"><div><div class="readout">' + formatHours(startHours) + '</div><div class="readout-label">Generator start</div></div><div><div class="readout">' + formatHours(stopHours) + '</div><div class="readout-label">Generator stop</div></div><div><div class="readout">' + formatHours(startHours != null && stopHours != null && stopHours >= startHours ? stopHours - startHours : null) + '</div><div class="readout-label">Hours used</div></div></div></section>';
     const act = (id, ic, t, sm, cls) => '<button class="act' + (cls || '') + '" id="' + id + '">' + ico(ic) + '<span><strong>' + t + '</strong><small>' + sm + '</small></span>' + ico('chev', 'chev') + '</button>';
     const banner = over ? '<div class="due-banner" role="alert"><div><b>Location photo due</b><span>30 minutes have passed since the last one.</span></div><button class="btn" id="l2">Upload now</button></div>' : '';
     const controls = done ? '<div class="acts"><button class="btn lg" id="e">' + ico('download') + 'Export CSV</button><button class="btn ghost" id="rs">' + ico('again') + 'Start new day</button></div>' :
         setupIncomplete
             ? '<button class="due-banner setup-required" id="setup-next" type="button"><div><b>Complete run setup to continue</b><span>' +
-              (!setup.hasVisit ? 'Save a business visit first.' : 'Capture and save the current location photo.') +
+              (!setup.hasGeneratorStart ? 'Save the generator start reading first.' : !setup.hasVisit ? 'Save a business visit first.' : 'Capture and save the current location photo.') +
               '</span></div></button><div class="acts">' +
-              act('setup', !setup.hasVisit ? 'store' : 'pin',
-                  !setup.hasVisit ? 'Required: business visit' : 'Required: location photo',
-                  !setup.hasVisit ? 'Business, area and amount collected' : 'Capture and save a location image') +
+              act('setup', !setup.hasGeneratorStart || !setup.hasLocation ? 'camera' : 'store',
+                  !setup.hasGeneratorStart ? 'Required: generator meter' : !setup.hasVisit ? 'Required: business visit' : 'Required: location photo',
+                  !setup.hasGeneratorStart ? 'Capture and save the generator starting hours' : !setup.hasVisit ? 'Business, area and amount collected' : 'Capture and save a location image') +
               '</div>'
             : '<div class="acts">' + act('l', 'pin', 'Upload current location image', 'Geo-tagged camera photo', over ? ' is-due' : '') + act('v', 'store', 'New business visit', 'Business, area and amount collected') + act('f', 'fuel', 'Upload fuel bill', 'Petrol for the generator or diesel for the vehicle') + act('oe', 'receipt', 'Other expense', 'Upload bill, then enter reason and amount') + '</div>' +
               '<button class="btn quiet" id="st">' + ico('stop') + 'Stop run</button>';

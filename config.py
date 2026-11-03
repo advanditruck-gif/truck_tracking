@@ -53,6 +53,9 @@ SCHEMAS = {
         "date": f(S, "Date shown on the display as YYYY-MM-DD (e.g. 20-SEP-26 -> 2026-09-20)."),
         "time": f(S, "Clock time shown on the display (e.g. 8:00 PM -> 20:00, 24-hour HH:MM). Do not return null when the clock is legible."),
     },
+    "generator": {
+        "hours": f(N, "The generator's cumulative hour-meter reading (for example, 209 from '209 H'). Ignore voltage, frequency, RPM, and model numbers."),
+    },
     "geo": {
         "date": f(S, "Date in the overlay as YYYY-MM-DD."),
         "time": f(S, "Time in the overlay, 24-hour HH:MM."),
@@ -81,6 +84,7 @@ PROMPTS = {
                "or on the main digital LCD / analog mileage counter). "
                "Also read the date and clock time shown on the display (convert clock to 24-hour HH:MM). "
                "Ignore steering wheel, people, hands, and reflections.",
+    "generator": "This is a close-up photo of a generator's hour-meter display. Read only the cumulative engine-hours value, usually followed by H or a small hours symbol (for example, 209 H means 209 hours). Ignore voltage, frequency, RPM, model numbers, and other values.",
     "geo": "Read only details that are actually visible in this image or its text overlay. Extract any visible date, "
            "time, address, and printed coordinates. Do not guess a street, town, district, or state from the scene; "
            "return null for details not visible.",

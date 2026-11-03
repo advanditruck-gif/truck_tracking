@@ -3,6 +3,7 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '
 const inr = v => '₹' + (+v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 });
 const inrShare = v => '₹' + (+v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 const km = v => v == null ? '—' : (+v).toLocaleString('en-IN');
+const hours = v => v == null ? '—' : (+v).toLocaleString('en-IN', { maximumFractionDigits: 2 }) + ' h';
 const fmtDate = s => {
     if (!s) return '—';
     const d = new Date(s);
@@ -39,6 +40,8 @@ const isDateInRange = date => !hasDateFilter() || (date >= dateStart && date <= 
 const labels = {
     start_km: 'Odometer — start',
     stop_km: 'Odometer — end',
+    generator_start: 'Generator hour meter — start',
+    generator_stop: 'Generator hour meter — stop',
     location: 'Location photo',
     fuel: 'Fuel bill',
     other_expense: 'Other expense',
@@ -47,6 +50,7 @@ const labels = {
 const folders = [
     { id: 'all', label: 'All records' },
     { id: 'odo', label: 'Odometer' },
+    { id: 'generator', label: 'Generator' },
     { id: 'fuel', label: 'Fuel bills' },
     { id: 'petrol', label: 'Petrol', child: true },
     { id: 'diesel', label: 'Diesel', child: true },
@@ -59,6 +63,7 @@ const namedBusinesses = ['MAGNUS', 'M&D', 'MERCHX', 'ALIMS', 'MEL'];
 const folderIcons = {
     all: '<path d="M4 5h16v14H4z"/><path d="M8 9h8M8 13h8M8 17h5"/>',
     odo: '<circle cx="12" cy="12" r="8"/><path d="M12 12l4-4M8 16h8"/>',
+    generator: '<circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/><path d="M5 4 3 2m16 2 2-2"/>',
     fuel: '<path d="M5 21V4h9v17M4 21h12"/><path d="M7 7h5v4H7z"/><path d="M14 8h2l3 3v6a2 2 0 0 0 4 0v-5l-3-3"/>',
     other_expense: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/>',
     location: '<path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/>',
@@ -235,7 +240,8 @@ function setupImageViewer() {
 }
 
 function categoryOf(record) {
-    if (record.type === 'start_km' || record.type === 'stop_km') return 'odo';
+    if (['start_km', 'stop_km'].includes(record.type)) return 'odo';
+    if (['generator_start', 'generator_stop'].includes(record.type)) return 'generator';
     if (record.type === 'location') return 'location';
     if (record.type === 'visit') return 'visit';
     if (record.type === 'other_expense') return 'other_expense';
@@ -538,6 +544,9 @@ function renderRunKpis() {
           '</b><span>Other expenses</span></div>'
         : '<div class="rep-card"><b>' + inr(sum('other_expense_amount')) +
           '</b><span>Other expenses</span></div>';
+    const generatorHours = runs.some(report => report.generator_hours_used != null)
+        ? hours(sum('generator_hours_used'))
+        : '—';
     return '<section class="rep-summary">' +
         '<div class="rep-card"><b>' + runs.length + '</b><span>Runs</span></div>' +
         '<div class="rep-card"><b>' + km(runs.reduce((total, report) => total + (report.distance_km || 0), 0)) +
@@ -546,7 +555,9 @@ function renderRunKpis() {
         '<div class="rep-card"><b>' + inr(sum('petrol_amount') + sum('diesel_amount')) +
         '</b><span>Total fuel bills</span></div>' +
         '<div class="rep-card"><b>' + inr(sum('balance_amount')) + '</b><span>Balance</span></div>' +
-        expenseCard + '</section>';
+        expenseCard +
+        '<div class="rep-card"><b>' + generatorHours +
+        '</b><span>Generator hours</span></div></section>';
 }
 
 function renderRunSummary() {
@@ -556,6 +567,8 @@ function renderRunSummary() {
         '<td>' + km(report.start_km) + '</td><td>' + esc(report.start_time || '—') + '</td>' +
         '<td>' + km(report.end_km) + '</td><td>' + esc(report.end_time || '—') + '</td>' +
         '<td>' + km(report.distance_km) + '</td><td>' + inr(report.petrol_amount) + '</td>' +
+        '<td>' + hours(report.generator_start_hours) + '</td><td>' + hours(report.generator_end_hours) +
+        '</td><td>' + hours(report.generator_hours_used) + '</td>' +
         '<td>' + inr(report.diesel_amount) + '</td><td>' + inr(report.other_expense_amount) +
         '</td><td>' + inr(report.collected_amount) + '</td>' +
         '<td>' + inr(report.balance_amount) + '</td><td>' + esc(report.areas_covered.join(', ') || '—') + '</td>' +
@@ -563,7 +576,8 @@ function renderRunSummary() {
     const table = '<section class="rep-section"><div class="rep-section-head"><h2>Run summary</h2>' +
         '<button class="g rep-export" id="rep-csv" type="button">Export CSV</button></div>' +
         (rows ? '<div class="rep-table-wrap"><table class="rep"><thead><tr><th>Date</th><th>Start KM</th>' +
-            '<th>Start time</th><th>End KM</th><th>End time</th><th>Distance</th><th>Petrol</th><th>Diesel</th>' +
+            '<th>Start time</th><th>End KM</th><th>End time</th><th>Distance</th><th>Petrol</th>' +
+            '<th>Generator start (h)</th><th>Generator end (h)</th><th>Generator used (h)</th><th>Diesel</th>' +
             '<th>Other expense</th><th>Collected</th><th>Balance</th><th>Areas</th><th>Status</th></tr></thead><tbody>' + rows +
             '</tbody></table></div>' : '<div class="rep-empty">No runs for the selected date.</div>') +
         '</section>';
@@ -573,11 +587,14 @@ function renderRunSummary() {
 function exportCsv() {
     const rows = selectedReports();
     const header = ['date', 'start_km', 'start_time', 'end_km', 'end_time', 'distance_km',
-        'petrol_amount', 'diesel_amount', 'other_expense_amount', 'collected_amount',
+        'petrol_amount', 'generator_start_hours', 'generator_end_hours', 'generator_hours_used',
+        'diesel_amount', 'other_expense_amount', 'collected_amount',
         'balance_amount', 'areas_covered', 'status'];
     const lines = [header].concat(rows.map(report => [
         report.date || '', report.start_km ?? '', report.start_time || '', report.end_km ?? '',
-        report.end_time || '', report.distance_km ?? '', report.petrol_amount, report.diesel_amount,
+        report.end_time || '', report.distance_km ?? '', report.petrol_amount,
+        report.generator_start_hours ?? '', report.generator_end_hours ?? '', report.generator_hours_used ?? '',
+        report.diesel_amount,
         report.other_expense_amount ?? 0,
         report.collected_amount, report.balance_amount, report.areas_covered.join(' | '),
         report.is_open ? 'In progress' : 'Closed'
@@ -595,9 +612,9 @@ function draw() {
     const runIds = selectedRunIds();
     const datedRecords = RECORDS.filter(record =>
         isDateInRange(recordDate(record)) && isRunSelected(record.run, runIds));
-    const showImages = ['odo', 'fuel', 'petrol', 'diesel', 'other_expense', 'location'].includes(selectedFolder);
+    const showImages = ['odo', 'generator', 'fuel', 'petrol', 'diesel', 'other_expense', 'location'].includes(selectedFolder);
     const imageCount = showImages ? records.filter(record => record.has_image).length : null;
-    const showRecordDetails = !['all', 'odo'].includes(selectedFolder);
+    const showRecordDetails = !['all', 'odo', 'generator'].includes(selectedFolder);
     const isAllRecords = selectedFolder === 'all';
     document.querySelector('main.report-main').classList.toggle('report-all-records', isAllRecords);
     const overview = isAllRecords

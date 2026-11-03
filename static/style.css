@@ -88,6 +88,10 @@ button.w{background:var(--wr);color:#fff}
 .led-main{display:flex;align-items:center;justify-content:space-between;gap:16px}
 .led-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:22px;padding-top:18px;border-top:1px solid var(--led-line)}
 .led-row>div+div{padding-left:16px;border-left:1px solid var(--led-line)}
+.led-row.generator-row{grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.led-row.generator-row>div+div{padding-left:10px}
+.led-row.generator-row .readout{font-size:clamp(16px,4vw,25px)}
+.led-row.generator-row .readout-label{font-size:11px}
 .ring{--p:0;position:relative;flex:none;display:grid;place-items:center;width:96px;height:96px;border-radius:50%;
   background:conic-gradient(var(--led) calc(var(--p)*1%),rgba(255,255,255,.1) 0)}
 .ring::before{content:"";position:absolute;inset:7px;border-radius:50%;background:var(--led-b)}

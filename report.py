@@ -5,6 +5,7 @@ Each "run" is one start_km -> stop_km cycle (run_id is set by the browser
 when the driver taps Start). A run can still be open (no stop_km yet).
 """
 from collections import defaultdict
+import math
 
 
 def _num(v):
@@ -12,6 +13,16 @@ def _num(v):
         return float(v)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _optional_num(v):
+    if v in (None, ""):
+        return None
+    try:
+        value = float(v)
+    except (TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) else None
 
 
 def _fuel_label(d):
@@ -46,6 +57,8 @@ def build_reports(events):
         evs = runs[rid]
         start = next((e for e in evs if e["t"] == "start_km"), None)
         stop = next((e for e in evs if e["t"] == "stop_km"), None)
+        generator_start = next((e for e in evs if e["t"] == "generator_start"), None)
+        generator_stop = next((e for e in evs if e["t"] == "generator_stop"), None)
         fuels = [e for e in evs if e["t"] == "fuel"]
         other_expenses = [e for e in evs if e["t"] == "other_expense"]
         visits = [e for e in evs if e["t"] == "visit"]
@@ -53,6 +66,15 @@ def build_reports(events):
 
         start_km = _num(start["d"].get("km")) if start else None
         end_km = _num(stop["d"].get("km")) if stop else None
+        generator_start_hours = _optional_num(generator_start["d"].get("hours")) if generator_start else None
+        generator_end_hours = _optional_num(generator_stop["d"].get("hours")) if generator_stop else None
+        generator_hours_used = (
+            generator_end_hours - generator_start_hours
+            if generator_start_hours is not None
+            and generator_end_hours is not None
+            and generator_end_hours >= generator_start_hours
+            else None
+        )
 
         petrol_amount = sum(_num(e["d"].get("amount")) for e in fuels if _is_petrol(e["d"]))
         diesel_amount = sum(_num(e["d"].get("amount")) for e in fuels if _is_diesel(e["d"]))
@@ -89,6 +111,9 @@ def build_reports(events):
             "end_km": end_km,
             "end_time": (stop and stop["d"].get("time")) or (stop and stop["at"]),
             "distance_km": (end_km - start_km) if (start_km is not None and end_km is not None) else None,
+            "generator_start_hours": generator_start_hours,
+            "generator_end_hours": generator_end_hours,
+            "generator_hours_used": generator_hours_used,
             "petrol_amount": petrol_amount,
             "diesel_amount": diesel_amount,
             "petrol_volume": petrol_volume,

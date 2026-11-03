@@ -221,7 +221,26 @@ def parse_fuel(res, digits_res=None):
             "amount": amount, "vehicle_no": "".join(veh.groups()) if veh else None}
 
 
-PARSERS = {"cluster": parse_cluster, "geo": parse_geo, "fuel": parse_fuel}
+def parse_generator(res, digits_res=None):
+    text = " ".join(_lines(res))
+    patterns = (
+        r"\b([0-9OolI|SB]{1,7}(?:[.,][0-9]+)?)\s*(?:h|hrs?|hours?)\b",
+        r"\b(?:hour|hours|hrs?)\s*[:=]?\s*([0-9OolI|SB]{1,7}(?:[.,][0-9]+)?)\b",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, text, re.I)
+        if match:
+            reading = match.group(1).translate(_FIX).replace(",", ".")
+            return {"hours": _num(reading)}
+    return {"hours": None}
+
+
+PARSERS = {
+    "cluster": parse_cluster,
+    "geo": parse_geo,
+    "fuel": parse_fuel,
+    "generator": parse_generator,
+}
 
 
 def warmup():
