@@ -47,6 +47,7 @@ def build_reports(events):
         start = next((e for e in evs if e["t"] == "start_km"), None)
         stop = next((e for e in evs if e["t"] == "stop_km"), None)
         fuels = [e for e in evs if e["t"] == "fuel"]
+        other_expenses = [e for e in evs if e["t"] == "other_expense"]
         visits = [e for e in evs if e["t"] == "visit"]
         locations = [e for e in evs if e["t"] == "location"]
 
@@ -58,6 +59,7 @@ def build_reports(events):
         petrol_volume = sum(_num(e["d"].get("volume")) for e in fuels if _is_petrol(e["d"]))
         diesel_volume = sum(_num(e["d"].get("volume")) for e in fuels if _is_diesel(e["d"]))
         collected = sum(_num(e["d"].get("amount_collected")) for e in visits)
+        other_expense_amount = sum(_num(e["d"].get("amount")) for e in other_expenses)
 
         # Areas covered come only from captured location photos, not manually
         # entered business-visit areas.
@@ -92,6 +94,8 @@ def build_reports(events):
             "petrol_volume": petrol_volume,
             "diesel_volume": diesel_volume,
             "fuel_count": len(fuels),
+            "other_expense_amount": other_expense_amount,
+            "other_expense_count": len(other_expenses),
             "collected_amount": collected,
             "balance_amount": collected - (petrol_amount + diesel_amount),
             "areas_covered": areas,

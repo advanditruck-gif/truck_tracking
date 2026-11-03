@@ -220,7 +220,7 @@ async function review(title, kind, vals, th, note) {
 }
 function reviewVisit(vals) {
     return new Promise(res => {
-        const businesses = ['MAGNUS', 'MERCHX', 'M&D', 'ALIMS'];
+        const businesses = ['MAGNUS', 'M&D', 'MERCHX', 'ALIMS', 'MEL'];
         const priorBusiness = String(vals.business_name || '');
         const isKnownBusiness = businesses.some(b => b.toLowerCase() === priorBusiness.toLowerCase());
         const initialAreas = Array.isArray(vals.area) ? vals.area : vals.area ? [vals.area] : [];
@@ -318,6 +318,73 @@ async function add(t, d, th, image, capturedAt) {
         alert('❌ Failed to save to Supabase:\n\n' + error.message + '\n\nThe record was NOT saved locally. Please check your internet connection and try again.');
         return false;
     }
+}
+async function otherExpense() {
+    const image = await shoot('Upload other expense bill');
+    if (!image) return;
+
+    const capturedAt = new Date();
+    const done = busy('Getting current location…');
+    const position = await gpsNow(true);
+    done();
+    if (!position || !position.c) {
+        alert((position && position.err ? position.err : 'Could not get your current location.') +
+            '\n\nThe expense was not saved. Enable Location and try again.');
+        return;
+    }
+
+    const address = await reverseGeocode(position.c);
+    const place = address && !address._error
+        ? [address.road, address.location, address.district, address.state].filter(Boolean).join(', ')
+        : '';
+    const location = place ? place + ' · GPS ' + position.c : 'GPS ' + position.c;
+    const preview = await thumb(image);
+    const date = capturedAt.toLocaleDateString('en-GB', {
+        day: '2-digit', month: 'short', year: 'numeric'
+    });
+    const time = capturedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    const m = modal('<h3>Other expense</h3><p class="mu sub">Add the reason and amount for this bill.</p>' +
+        '<img class="th" src="' + preview + '" alt="Other expense bill">' +
+        '<div class="expense-form"><label for="expense-date">Date</label>' +
+        '<input id="expense-date" type="text" value="' + esc(date) + '" readonly>' +
+        '<label for="expense-time">Time</label><input id="expense-time" type="text" value="' + esc(time) + '" readonly>' +
+        '<label for="expense-location">Location</label><input id="expense-location" type="text" value="' + esc(location) + '" readonly>' +
+        (address && address._error ? '<p class="mu">Address lookup unavailable; GPS coordinates were saved.</p>' : '') +
+        '<label for="expense-reason">Reason</label><input id="expense-reason" type="text" maxlength="160" placeholder="What was this expense for?">' +
+        '<label for="expense-amount">Expense amount (₹)</label><input id="expense-amount" type="number" inputmode="decimal" min="0.01" step="any" placeholder="0">' +
+        '<p class="visit-error" id="expense-error" role="alert" hidden></p></div>' +
+        '<div class="row"><button class="g" id="expense-cancel" type="button">Cancel</button>' +
+        '<button id="expense-save" type="button">Save</button></div>', 'md-review md-expense');
+    const reason = m.querySelector('#expense-reason');
+    const amount = m.querySelector('#expense-amount');
+    const error = m.querySelector('#expense-error');
+    m.querySelector('#expense-cancel').onclick = () => m.remove();
+    m.querySelector('#expense-save').onclick = async () => {
+        const expenseReason = reason.value.trim();
+        const expenseAmount = Number(amount.value);
+        if (!expenseReason) {
+            error.textContent = 'Enter a reason for this expense.';
+            error.hidden = false;
+            reason.focus();
+            return;
+        }
+        if (!Number.isFinite(expenseAmount) || expenseAmount <= 0) {
+            error.textContent = 'Enter an expense amount greater than zero.';
+            error.hidden = false;
+            amount.focus();
+            return;
+        }
+        m.remove();
+        const data = {
+            date,
+            time,
+            location: place || position.c,
+            gps: position.c,
+            reason: expenseReason,
+            amount: expenseAmount
+        };
+        await add('other_expense', data, preview, image, capturedAt.toISOString());
+    };
 }
 async function snap(kind, title, extra = {}) {
     const gp = kind === 'geo' ? gpsNow() : null;
@@ -492,7 +559,7 @@ async function csv() {
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], { type: 'text/csv' })); a.download = name; a.click()
 }
 // ---- render
-const N = { start_km: 'Run started', visit: 'Business visit', location: 'Location photo', fuel: 'Fuel bill', stop_km: 'Run stopped' };
+const N = { start_km: 'Run started', visit: 'Business visit', location: 'Location photo', fuel: 'Fuel bill', other_expense: 'Other expense', stop_km: 'Run stopped' };
 const ev = t => S.ev.filter(e => e.t === t);
 const IC = {
     camera: '<path d="M4 8h3l1.5-2h7L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>', pin: '<path d="M12 21s7-6.2 7-11a7 7 0 10-14 0c0 4.8 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/>',
@@ -508,7 +575,8 @@ const SUM = {
     start_km: odo, stop_km: odo,
     visit: d => [['Business', d.business_name], ['Area', Array.isArray(d.area) ? d.area.join(', ') : d.area], ['Collected', d.amount_collected && inr(d.amount_collected)]],
     location: d => [['Place', [d.road, d.location].filter(Boolean).join(', ')], ['Region', [d.district, d.state].filter(Boolean).join(', ')], ['GPS', d.gps]],
-    fuel: d => [['Fuel', d.fuel_for || d.product], ['Amount', d.amount && inr(d.amount)], ['Volume', d.volume && d.volume + ' L'], ['Receipt', d.receipt_no], ['Check', d.flag]]
+    fuel: d => [['Fuel', d.fuel_for || d.product], ['Amount', d.amount && inr(d.amount)], ['Volume', d.volume && d.volume + ' L'], ['Receipt', d.receipt_no], ['Check', d.flag]],
+    other_expense: d => [['Reason', d.reason], ['Expense', d.amount && inr(d.amount)], ['Location', d.location], ['Date', d.date], ['Time', d.time]]
 };
 const rows = e => (SUM[e.t] ? SUM[e.t](e.d) : []).filter(([, v]) => v).map(([k, v]) => '<span><em>' + k + '</em><b>' + esc(v) + '</b></span>').join('').replace(/<b>/g, '<b style="font-weight:600">');
 function render() { try { draw() } catch (e) { console.error(e); const A = $('#app'); if (A) A.innerHTML = '<div class="note err"><b>Display error:</b> ' + esc(e.message) + '. Press F12, open Console, and send the red message.</div>' } }
@@ -542,12 +610,11 @@ function draw() {
                   !setup.hasVisit ? 'Required: business visit' : 'Required: location photo',
                   !setup.hasVisit ? 'Business, area and amount collected' : 'Capture and save a location image') +
               '</div>'
-            : '<div class="acts">' + act('l', 'pin', 'Upload current location image', 'Geo-tagged camera photo', over ? ' is-due' : '') + act('v', 'store', 'New business visit', 'Business, area and amount collected') + act('f', 'fuel', 'Upload fuel bill', 'Petrol for the generator or diesel for the vehicle') + '</div>' +
-              '<button class="btn quiet" id="st">' + ico('stop') + 'Stop run</button><button class="link" id="dm">Demo: skip the 30-minute wait</button>';
+            : '<div class="acts">' + act('l', 'pin', 'Upload current location image', 'Geo-tagged camera photo', over ? ' is-due' : '') + act('v', 'store', 'New business visit', 'Business, area and amount collected') + act('f', 'fuel', 'Upload fuel bill', 'Petrol for the generator or diesel for the vehicle') + act('oe', 'receipt', 'Other expense', 'Upload bill, then enter reason and amount') + '</div>' +
+              '<button class="btn quiet" id="st">' + ico('stop') + 'Stop run</button>';
     const tl = '<section class="tlwrap"><h3>Today’s timeline <span class="count">' + S.ev.length + '</span></h3><ol class="tl">' + S.ev.slice().reverse().map(e => '<li data-t="' + e.t + '">' + (e.th ? '<img src="' + e.th + '" alt="">' : '') + '<div class="tl-body"><div class="tl-head"><strong>' + N[e.t] + '</strong><time>' + new Date(e.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '</time></div><div class="kv">' + rows(e) + '</div></div></li>').join('') + '</ol></section>';
     A.innerHTML = '<div class="grid"><div>' + banner + panel + controls + '</div>' + tl + '</div>';
-    const b = (i, f) => $('#' + i) && ($('#' + i).onclick = f); b('l', () => loc()); b('l2', () => loc()); b('v', visit); b('setup', completeInitialSetup); b('setup-next', completeInitialSetup); b('f', fuel); b('st', stop); b('e', csv); b('rs', reset);
-    b('dm', () => { r.due = Date.now() - 1; r.notified = false; keep(); render() })
+    const b = (i, f) => $('#' + i) && ($('#' + i).onclick = f); b('l', () => loc()); b('l2', () => loc()); b('v', visit); b('setup', completeInitialSetup); b('setup-next', completeInitialSetup); b('f', fuel); b('oe', otherExpense); b('st', stop); b('e', csv); b('rs', reset);
 }
 setInterval(() => {
     const r = S.run; if (r && !r.end && r.due && Date.now() > r.due && !r.notified) {

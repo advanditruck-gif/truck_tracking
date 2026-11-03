@@ -199,6 +199,10 @@ input:focus{outline:none;border-color:var(--focus);box-shadow:0 0 0 3px rgba(43,
 .area-tag button{display:grid;place-items:center;flex:none;width:24px;min-height:24px;margin:0;padding:0;border:0;border-radius:50%;background:transparent;color:var(--mu);font:20px/1 Arial,sans-serif}
 .area-tag button:hover{background:rgba(255,255,255,.08);color:var(--ink)}
 .visit-error{margin:10px 0 0;color:var(--wr);font-size:13px}
+.expense-form label{margin-top:10px}
+.expense-form input{margin-top:6px}
+.expense-form input[readonly]{cursor:default}
+.expense-form input:not([readonly])::placeholder{color:var(--mu);font-weight:400}
 .md-loading .bx{text-align:center;padding-bottom:30px}
 .spin{width:34px;height:34px;margin:6px auto 14px;border:3px solid var(--line);border-top-color:var(--ink);border-radius:50%;animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -373,4 +377,8 @@ input:focus{outline:none;border-color:var(--focus);box-shadow:0 0 0 3px rgba(43,
 }
 .geo-refresh-gps-btn:hover {
   background: rgba(232, 202, 120, 0.15) !important;
+}
+
+body, body * {
+  font-family: Lora, Georgia, "Times New Roman", serif !important;
 }

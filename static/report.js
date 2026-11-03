@@ -1,6 +1,7 @@
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const inr = v => '₹' + (+v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+const inrShare = v => '₹' + (+v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 const km = v => v == null ? '—' : (+v).toLocaleString('en-IN');
 const fmtDate = s => {
     if (!s) return '—';
@@ -40,6 +41,7 @@ const labels = {
     stop_km: 'Odometer — end',
     location: 'Location photo',
     fuel: 'Fuel bill',
+    other_expense: 'Other expense',
     visit: 'Business visit'
 };
 const folders = [
@@ -48,14 +50,17 @@ const folders = [
     { id: 'fuel', label: 'Fuel bills' },
     { id: 'petrol', label: 'Petrol', child: true },
     { id: 'diesel', label: 'Diesel', child: true },
+    { id: 'other_expense', label: 'Other expenses' },
     { id: 'location', label: 'Location' },
     { id: 'visit', label: 'Business visits' }
 ];
+const namedBusinesses = ['MAGNUS', 'M&D', 'MERCHX', 'ALIMS', 'MEL'];
 
 const folderIcons = {
     all: '<path d="M4 5h16v14H4z"/><path d="M8 9h8M8 13h8M8 17h5"/>',
     odo: '<circle cx="12" cy="12" r="8"/><path d="M12 12l4-4M8 16h8"/>',
     fuel: '<path d="M5 21V4h9v17M4 21h12"/><path d="M7 7h5v4H7z"/><path d="M14 8h2l3 3v6a2 2 0 0 0 4 0v-5l-3-3"/>',
+    other_expense: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/>',
     location: '<path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/>',
     visit: '<path d="M3 10h18l-2-6H5z"/><path d="M5 10v10h14V10M9 20v-6h6v6"/><path d="M3 10a2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0"/>'
 };
@@ -65,7 +70,7 @@ const folderIcon = folder => folder.child
       'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
       folderIcons[folder.id] + '</svg>';
 
-let REPORTS = [], RECORDS = [], selectedFolder = 'all', dateStart = '', dateEnd = '';
+let REPORTS = [], RECORDS = [], selectedFolder = 'all', dateStart = '', dateEnd = '', businessFilter = '';
 let draftStart = '', draftEnd = '', calendarMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 let imageViewer, imageViewerImage, imageViewerCanvas, imageZoom = 1, imageFit = 1, imageTrigger;
 let imageViewerPortrait = false;
@@ -233,6 +238,7 @@ function categoryOf(record) {
     if (record.type === 'start_km' || record.type === 'stop_km') return 'odo';
     if (record.type === 'location') return 'location';
     if (record.type === 'visit') return 'visit';
+    if (record.type === 'other_expense') return 'other_expense';
     if (record.type === 'fuel') {
         const fuel = String(record.data.fuel_for || record.data.product || '').toLowerCase();
         return fuel.includes('petrol') ? 'petrol' : fuel.includes('diesel') ? 'diesel' : 'fuel';
@@ -248,6 +254,46 @@ function reportDate(report) {
     const raw = String(report.date || '');
     if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
     return localDateKey(raw) || raw;
+}
+
+function businessName(record) {
+    return String(record.data && record.data.business_name || '').trim();
+}
+
+function businessCategory(name) {
+    const normalized = String(name || '').trim().toLocaleLowerCase();
+    const knownBusiness = namedBusinesses.find(business => business.toLocaleLowerCase() === normalized);
+    return knownBusiness || (normalized ? 'OTHER' : '');
+}
+
+function activeNamedBusinesses() {
+    const visited = new Set(RECORDS
+        .filter(record => record.type === 'visit')
+        .map(record => businessCategory(businessName(record))));
+    return namedBusinesses.filter(name => visited.has(name));
+}
+
+function businessOptions() {
+    return [...activeNamedBusinesses(), 'OTHER'];
+}
+
+function selectedRunIds() {
+    if (!businessFilter) return null;
+    return new Set(RECORDS
+        .filter(record => record.type === 'visit' &&
+            businessCategory(businessName(record)) === businessFilter)
+        .map(record => String(record.run ?? ''))
+        .filter(Boolean));
+}
+
+function isRunSelected(run, runIds) {
+    return !runIds || runIds.has(String(run ?? ''));
+}
+
+function selectedReports() {
+    const runIds = selectedRunIds();
+    return REPORTS.filter(report =>
+        isDateInRange(reportDate(report)) && isRunSelected(report.run, runIds));
 }
 
 function renderCalendarMonth(year, month) {
@@ -330,8 +376,10 @@ async function load() {
 }
 
 function selectedRecords() {
+    const runIds = selectedRunIds();
     return RECORDS.filter(record => {
         if (!isDateInRange(recordDate(record))) return false;
+        if (!isRunSelected(record.run, runIds)) return false;
         const category = categoryOf(record);
         if (selectedFolder === 'all') return true;
         if (selectedFolder === 'odo') return category === 'odo';
@@ -350,7 +398,7 @@ function folderCount(folderId, records, runCount) {
 }
 
 function renderSidebar(records) {
-    const runCount = REPORTS.filter(report => isDateInRange(reportDate(report))).length;
+    const runCount = selectedReports().length;
     return '<aside class="rep-sidebar" id="report-folders" aria-label="Record folders">' +
         '<div class="rep-sidebar-title">FOLDERS</div>' +
         folders.map(folder => {
@@ -371,12 +419,26 @@ function renderToolbar(imageCount = null) {
     const headingDate = hasDateFilter()
         ? 'Records for ' + (dateStart === dateEnd ? fmtDateKey(dateStart) : fmtDateKey(dateStart) + ' – ' + fmtDateKey(dateEnd))
         : 'Full history from the database';
+    const headingBusiness = businessFilter ? ' · ' + businessFilter : '';
+    const businesses = businessOptions();
     return '<div class="rep-toolbar"><div class="rep-toolbar-heading"><h1>' +
         esc((folders.find(folder => folder.id === selectedFolder) || folders[0]).label) +
-        '</h1><p class="mu">' + esc(headingDate) +
+        '</h1><p class="mu">' + esc(headingDate + headingBusiness) +
         '</p></div>' + (imageCount === null ? '' :
         '<div class="rep-image-toolbar-title"><h2>Images</h2><span class="rep-section-count">' + imageCount + '</span></div>') +
-        '<div class="rep-toolbar-actions"><span class="rep-date-label">Date</span><button class="rep-date-trigger" id="rep-date-trigger" type="button" ' +
+        '<div class="rep-toolbar-actions"><label id="rep-business-label">Business</label>' +
+        '<div class="rep-business-filter"><button class="rep-business-trigger" id="rep-business-trigger" type="button" ' +
+        'aria-labelledby="rep-business-label rep-business-value" aria-haspopup="listbox" ' +
+        'aria-controls="rep-business-options" aria-expanded="false">' +
+        '<span id="rep-business-value">' + esc(businessFilter || 'All businesses') + '</span>' +
+        '<span class="rep-business-chevron" aria-hidden="true"></span></button>' +
+        '<div class="rep-business-options" id="rep-business-options" role="listbox" ' +
+        'aria-labelledby="rep-business-label" hidden>' +
+        [['', 'All businesses'], ...businesses.map(name => [name, name])].map(([value, name]) =>
+            '<div class="rep-business-option" role="option" tabindex="-1" data-business="' + esc(value) +
+            '" aria-selected="' + (value.toLocaleLowerCase() === businessFilter.toLocaleLowerCase()) + '">' +
+            esc(name) + '</div>').join('') + '</div></div>' +
+        '<span class="rep-date-label">Date</span><button class="rep-date-trigger" id="rep-date-trigger" type="button" ' +
         'aria-haspopup="dialog" aria-expanded="false">' + esc(dateLabel) + '<span aria-hidden="true">▦</span></button></div></div>' +
         '<div class="rep-date-picker-backdrop" id="rep-date-picker" hidden><section class="rep-date-picker" role="dialog" ' +
         'aria-modal="true" aria-label="Filter records by date"><nav class="rep-date-presets" aria-label="Date range presets">' +
@@ -403,11 +465,12 @@ function renderImages(records) {
         const imageUrl = '/report/image/' + encodeURIComponent(record.id) + '?v=2';
         const fuel = record.data.fuel_for || record.data.product;
         const title = record.type === 'fuel' ? (fuel || 'Fuel bill') :
+            record.type === 'other_expense' ? (record.data.reason || 'Other expense bill') :
             (labels[record.type] || 'Uploaded image');
         const time = record.at && !isNaN(new Date(record.at))
             ? new Date(record.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
             : 'Time unavailable';
-        const orientation = record.type === 'fuel' ? 'portrait' : 'landscape';
+        const orientation = ['fuel', 'other_expense'].includes(record.type) ? 'portrait' : 'landscape';
         return '<button class="rep-image-card" type="button" data-image-url="' + imageUrl +
             '" data-image-title="' + esc(title) + '" data-image-orientation="' + orientation +
             '" aria-label="View ' + esc(title) + '">' +
@@ -441,8 +504,9 @@ function renderRecords(records) {
         const imageLink = record.has_image && !['all', 'visit'].includes(selectedFolder)
             ? '<button class="rep-record-image" type="button" data-image-url="/report/image/' +
               encodeURIComponent(record.id) + '?v=2" data-image-orientation="' +
-              (record.type === 'fuel' ? 'portrait' : 'landscape') + '" data-image-title="' +
-              esc(labels[record.type] || 'Uploaded image') + '">Open image</button>'
+              (['fuel', 'other_expense'].includes(record.type) ? 'portrait' : 'landscape') + '" data-image-title="' +
+              esc(record.type === 'other_expense' ? (record.data.reason || 'Other expense bill') :
+                  labels[record.type] || 'Uploaded image') + '">Open image</button>'
             : '';
         return '<article class="rep-record"><header><div><h3>' +
             esc(labels[record.type] || record.type.replace(/_/g, ' ')) +
@@ -460,8 +524,20 @@ function renderRecords(records) {
 }
 
 function renderRunKpis() {
-    const runs = REPORTS.filter(report => isDateInRange(reportDate(report)));
+    const runs = selectedReports();
     const sum = key => runs.reduce((total, report) => total + (+report[key] || 0), 0);
+    const totalOtherExpenses = REPORTS
+        .filter(report => isDateInRange(reportDate(report)))
+        .reduce((total, report) => total + (+report.other_expense_amount || 0), 0);
+    const splitBusinesses = activeNamedBusinesses();
+    const expenseCard = businessFilter === 'OTHER'
+        ? '<div class="rep-card"><b>' + inrShare(0) +
+          '</b><span>Other expenses</span></div>'
+        : businessFilter && splitBusinesses.includes(businessFilter)
+        ? '<div class="rep-card"><b>' + inrShare(totalOtherExpenses / splitBusinesses.length) +
+          '</b><span>Other expenses</span></div>'
+        : '<div class="rep-card"><b>' + inr(sum('other_expense_amount')) +
+          '</b><span>Other expenses</span></div>';
     return '<section class="rep-summary">' +
         '<div class="rep-card"><b>' + runs.length + '</b><span>Runs</span></div>' +
         '<div class="rep-card"><b>' + km(runs.reduce((total, report) => total + (report.distance_km || 0), 0)) +
@@ -469,36 +545,40 @@ function renderRunKpis() {
         '<div class="rep-card"><b>' + inr(sum('collected_amount')) + '</b><span>Total collected</span></div>' +
         '<div class="rep-card"><b>' + inr(sum('petrol_amount') + sum('diesel_amount')) +
         '</b><span>Total fuel bills</span></div>' +
-        '<div class="rep-card"><b>' + inr(sum('balance_amount')) + '</b><span>Balance</span></div></section>';
+        '<div class="rep-card"><b>' + inr(sum('balance_amount')) + '</b><span>Balance</span></div>' +
+        expenseCard + '</section>';
 }
 
 function renderRunSummary() {
     if (selectedFolder !== 'all') return '';
-    const runs = REPORTS.filter(report => isDateInRange(reportDate(report)));
+    const runs = selectedReports();
     const rows = runs.map(report => '<tr><td>' + esc(fmtDate(report.date)) + '</td>' +
         '<td>' + km(report.start_km) + '</td><td>' + esc(report.start_time || '—') + '</td>' +
         '<td>' + km(report.end_km) + '</td><td>' + esc(report.end_time || '—') + '</td>' +
         '<td>' + km(report.distance_km) + '</td><td>' + inr(report.petrol_amount) + '</td>' +
-        '<td>' + inr(report.diesel_amount) + '</td><td>' + inr(report.collected_amount) + '</td>' +
+        '<td>' + inr(report.diesel_amount) + '</td><td>' + inr(report.other_expense_amount) +
+        '</td><td>' + inr(report.collected_amount) + '</td>' +
         '<td>' + inr(report.balance_amount) + '</td><td>' + esc(report.areas_covered.join(', ') || '—') + '</td>' +
         '<td>' + (report.is_open ? 'In progress' : 'Closed') + '</td></tr>').join('');
     const table = '<section class="rep-section"><div class="rep-section-head"><h2>Run summary</h2>' +
         '<button class="g rep-export" id="rep-csv" type="button">Export CSV</button></div>' +
         (rows ? '<div class="rep-table-wrap"><table class="rep"><thead><tr><th>Date</th><th>Start KM</th>' +
             '<th>Start time</th><th>End KM</th><th>End time</th><th>Distance</th><th>Petrol</th><th>Diesel</th>' +
-            '<th>Collected</th><th>Balance</th><th>Areas</th><th>Status</th></tr></thead><tbody>' + rows +
+            '<th>Other expense</th><th>Collected</th><th>Balance</th><th>Areas</th><th>Status</th></tr></thead><tbody>' + rows +
             '</tbody></table></div>' : '<div class="rep-empty">No runs for the selected date.</div>') +
         '</section>';
     return table;
 }
 
 function exportCsv() {
-    const rows = REPORTS.filter(report => isDateInRange(reportDate(report)));
+    const rows = selectedReports();
     const header = ['date', 'start_km', 'start_time', 'end_km', 'end_time', 'distance_km',
-        'petrol_amount', 'diesel_amount', 'collected_amount', 'balance_amount', 'areas_covered', 'status'];
+        'petrol_amount', 'diesel_amount', 'other_expense_amount', 'collected_amount',
+        'balance_amount', 'areas_covered', 'status'];
     const lines = [header].concat(rows.map(report => [
         report.date || '', report.start_km ?? '', report.start_time || '', report.end_km ?? '',
         report.end_time || '', report.distance_km ?? '', report.petrol_amount, report.diesel_amount,
+        report.other_expense_amount ?? 0,
         report.collected_amount, report.balance_amount, report.areas_covered.join(' | '),
         report.is_open ? 'In progress' : 'Closed'
     ]));
@@ -512,8 +592,10 @@ function exportCsv() {
 
 function draw() {
     const records = selectedRecords();
-    const datedRecords = RECORDS.filter(record => isDateInRange(recordDate(record)));
-    const showImages = ['odo', 'fuel', 'petrol', 'diesel', 'location'].includes(selectedFolder);
+    const runIds = selectedRunIds();
+    const datedRecords = RECORDS.filter(record =>
+        isDateInRange(recordDate(record)) && isRunSelected(record.run, runIds));
+    const showImages = ['odo', 'fuel', 'petrol', 'diesel', 'other_expense', 'location'].includes(selectedFolder);
     const imageCount = showImages ? records.filter(record => record.has_image).length : null;
     const showRecordDetails = !['all', 'odo'].includes(selectedFolder);
     const isAllRecords = selectedFolder === 'all';
@@ -532,6 +614,24 @@ function draw() {
     const pageHeading = document.querySelector('.rep-toolbar-heading');
     header.appendChild(pageHeading);
     const folderToggle = header.querySelector('.rep-folder-toggle');
+    const businessTrigger = $('#rep-business-trigger');
+    const businessOptionsMenu = $('#rep-business-options');
+    const businessOptionsList = [...businessOptionsMenu.querySelectorAll('[data-business]')];
+    const closeBusinessMenu = () => {
+        businessOptionsMenu.hidden = true;
+        businessTrigger.setAttribute('aria-expanded', 'false');
+    };
+    const openBusinessMenu = () => {
+        businessOptionsMenu.hidden = false;
+        businessTrigger.setAttribute('aria-expanded', 'true');
+        const selectedOption = businessOptionsList.find(option => option.getAttribute('aria-selected') === 'true');
+        (selectedOption || businessOptionsList[0]).focus();
+    };
+    const moveBusinessFocus = (current, offset) => {
+        const index = businessOptionsList.indexOf(current);
+        const next = (index + offset + businessOptionsList.length) % businessOptionsList.length;
+        businessOptionsList[next].focus();
+    };
     const closeFolderMenu = () => {
         document.body.classList.remove('report-folders-open');
         folderToggle.setAttribute('aria-expanded', 'false');
@@ -547,6 +647,9 @@ function draw() {
             !event.target.closest('.rep-sidebar, .rep-folder-toggle')) {
             closeFolderMenu();
         }
+        if (!businessOptionsMenu.hidden && !event.target.closest('.rep-business-filter')) {
+            closeBusinessMenu();
+        }
     };
     document.querySelectorAll('[data-folder]').forEach(button => {
         button.onclick = () => { selectedFolder = button.dataset.folder; closeFolderMenu(); draw() };
@@ -554,6 +657,43 @@ function draw() {
     if (!window.matchMedia('(max-width: 640px)').matches) closeFolderMenu();
     const picker = $('#rep-date-picker');
     const dateTrigger = $('#rep-date-trigger');
+    businessTrigger.onclick = () => {
+        if (businessOptionsMenu.hidden) openBusinessMenu();
+        else closeBusinessMenu();
+    };
+    businessTrigger.onkeydown = event => {
+        if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(event.key)) {
+            event.preventDefault();
+            if (businessOptionsMenu.hidden) openBusinessMenu();
+        }
+    };
+    businessOptionsMenu.onclick = event => {
+        const option = event.target.closest('[data-business]');
+        if (!option) return;
+        businessFilter = option.dataset.business;
+        draw();
+        $('#rep-business-trigger').focus();
+    };
+    businessOptionsMenu.onkeydown = event => {
+        const option = event.target.closest('[data-business]');
+        if (!option) return;
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            event.preventDefault();
+            moveBusinessFocus(option, event.key === 'ArrowDown' ? 1 : -1);
+        } else if (event.key === 'Home' || event.key === 'End') {
+            event.preventDefault();
+            businessOptionsList[event.key === 'Home' ? 0 : businessOptionsList.length - 1].focus();
+        } else if (event.key === 'Escape') {
+            event.preventDefault();
+            closeBusinessMenu();
+            businessTrigger.focus();
+        } else if (event.key === 'Tab') {
+            closeBusinessMenu();
+        } else if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            option.click();
+        }
+    };
     const closeDatePicker = () => {
         picker.hidden = true;
         dateTrigger.setAttribute('aria-expanded', 'false');
@@ -562,6 +702,7 @@ function draw() {
         if (event.key === 'Escape') {
             closeDatePicker();
             closeFolderMenu();
+            closeBusinessMenu();
         }
     };
     dateTrigger.onclick = () => {
