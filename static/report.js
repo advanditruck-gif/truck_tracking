@@ -566,18 +566,19 @@ function renderRunSummary() {
     const rows = runs.map(report => '<tr><td>' + esc(fmtDate(report.date)) + '</td>' +
         '<td>' + km(report.start_km) + '</td><td>' + esc(report.start_time || '—') + '</td>' +
         '<td>' + km(report.end_km) + '</td><td>' + esc(report.end_time || '—') + '</td>' +
-        '<td>' + km(report.distance_km) + '</td><td>' + inr(report.petrol_amount) + '</td>' +
+        '<td>' + km(report.distance_km) + '</td>' +
         '<td>' + hours(report.generator_start_hours) + '</td><td>' + hours(report.generator_end_hours) +
         '</td><td>' + hours(report.generator_hours_used) + '</td>' +
-        '<td>' + inr(report.diesel_amount) + '</td><td>' + inr(report.other_expense_amount) +
+        '<td>' + inr(report.petrol_amount) + '</td><td>' + inr(report.diesel_amount) +
+        '</td><td>' + inr(report.other_expense_amount) +
         '</td><td>' + inr(report.collected_amount) + '</td>' +
         '<td>' + inr(report.balance_amount) + '</td><td>' + esc(report.areas_covered.join(', ') || '—') + '</td>' +
         '<td>' + (report.is_open ? 'In progress' : 'Closed') + '</td></tr>').join('');
     const table = '<section class="rep-section"><div class="rep-section-head"><h2>Run summary</h2>' +
         '<button class="g rep-export" id="rep-csv" type="button">Export CSV</button></div>' +
         (rows ? '<div class="rep-table-wrap"><table class="rep"><thead><tr><th>Date</th><th>Start KM</th>' +
-            '<th>Start time</th><th>End KM</th><th>End time</th><th>Distance</th><th>Petrol</th>' +
-            '<th>Generator start (h)</th><th>Generator end (h)</th><th>Generator used (h)</th><th>Diesel</th>' +
+            '<th>Start time</th><th>End KM</th><th>End time</th><th>Distance</th>' +
+            '<th>Generator start (h)</th><th>Generator end (h)</th><th>Generator used (h)</th><th>Petrol</th><th>Diesel</th>' +
             '<th>Other expense</th><th>Collected</th><th>Balance</th><th>Areas</th><th>Status</th></tr></thead><tbody>' + rows +
             '</tbody></table></div>' : '<div class="rep-empty">No runs for the selected date.</div>') +
         '</section>';
@@ -587,14 +588,14 @@ function renderRunSummary() {
 function exportCsv() {
     const rows = selectedReports();
     const header = ['date', 'start_km', 'start_time', 'end_km', 'end_time', 'distance_km',
-        'petrol_amount', 'generator_start_hours', 'generator_end_hours', 'generator_hours_used',
+        'generator_start_hours', 'generator_end_hours', 'generator_hours_used', 'petrol_amount',
         'diesel_amount', 'other_expense_amount', 'collected_amount',
         'balance_amount', 'areas_covered', 'status'];
     const lines = [header].concat(rows.map(report => [
         report.date || '', report.start_km ?? '', report.start_time || '', report.end_km ?? '',
-        report.end_time || '', report.distance_km ?? '', report.petrol_amount,
+        report.end_time || '', report.distance_km ?? '',
         report.generator_start_hours ?? '', report.generator_end_hours ?? '', report.generator_hours_used ?? '',
-        report.diesel_amount,
+        report.petrol_amount, report.diesel_amount,
         report.other_expense_amount ?? 0,
         report.collected_amount, report.balance_amount, report.areas_covered.join(' | '),
         report.is_open ? 'In progress' : 'Closed'
