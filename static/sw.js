@@ -1,9 +1,12 @@
 /* Ad Vandi Service Worker (PWA) */
-const CACHE_NAME = 'advandi-v2.0';
+const CACHE_NAME = 'advandi-v2.2';
 
 const PRECACHE_ASSETS = [
     '/',
     '/static/style.css',
+    '/static/theme.css',
+    '/static/theme.js',
+    '/static/ad-vandi-logo-light.svg',
     '/static/app.js',
     '/static/ad-vandi-logo.png',
     '/static/alert.mp3',

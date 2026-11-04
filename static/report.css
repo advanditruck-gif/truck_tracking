@@ -22,7 +22,8 @@
 /* ---- table ---- */
 .rep-table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:18px;background:var(--surface)}
 table.rep{width:100%;border-collapse:collapse;font-size:13px;white-space:nowrap}
-table.rep th,table.rep td{padding:12px 14px;text-align:left;border-bottom:1px solid var(--line)}
+table.rep th,table.rep td{padding:12px 14px;text-align:center;border-bottom:1px solid var(--line)}
+table.rep th:first-child,table.rep td:first-child{text-align:left}
 table.rep th{position:sticky;top:0;background:var(--raised);color:var(--mu);font:600 11px/1.2 Arial,sans-serif;
   letter-spacing:.05em;text-transform:uppercase;z-index:1}
 table.rep tbody tr:last-child td{border-bottom:0}

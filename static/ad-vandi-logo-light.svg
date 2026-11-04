@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="154" height="58" viewBox="0 0 154 58">
+  <defs>
+    <linearGradient id="badge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f2d78c"/>
+      <stop offset="1" stop-color="#c5a14b"/>
+    </linearGradient>
+  </defs>
+  <rect x="16" y="8" width="40" height="40" rx="12" fill="url(#badge)"/>
+  <g fill="none" stroke="#382d16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
+    <path d="M25 21h15v14H25z"/>
+    <path d="M40 26h6l4 5v4H40z"/>
+    <circle cx="30" cy="37" r="2.5" fill="#382d16"/>
+    <circle cx="44" cy="37" r="2.5" fill="#382d16"/>
+  </g>
+  <text x="62" y="27" fill="#202738" font-family="Lora, Georgia, serif" font-size="18" font-weight="700">Ad Vandi</text>
+  <text x="63" y="40" fill="#8a6718" font-family="Arial, sans-serif" font-size="8" font-weight="700" letter-spacing="3">RUN LOG</text>
+</svg>

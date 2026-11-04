@@ -1,0 +1,108 @@
+.theme-toggle{
+  display:inline-grid;
+  place-items:center;
+  flex:none;
+  width:36px;
+  min-height:36px;
+  margin:0;
+  padding:0;
+  border:1px solid rgba(201,160,52,.65);
+  border-radius:50%;
+  background:var(--surface);
+  color:var(--ink);
+  cursor:pointer;
+}
+.theme-toggle svg{width:18px;height:18px}
+.theme-toggle .theme-sun{display:none}
+html[data-theme="light"]{
+  color-scheme:light;
+  --bg:#f4f6fa;
+  --surface:#fff;
+  --raised:#edf0f5;
+  --ink:#222938;
+  --mu:#667085;
+  --line:rgba(31,41,55,.14);
+  --led:#8a6718;
+  --led-dim:#806a3a;
+  --amber:#8a6718;
+  --amber-soft:#f5edda;
+  --ok:#3d7950;
+  --wr:#b54740;
+  --wr-soft:#fae8e7;
+  --focus:#a47b1c;
+  --sh:0 1px 2px rgba(31,41,55,.08),0 18px 40px -16px rgba(31,41,55,.2);
+}
+html[data-theme="light"] .theme-toggle{border-color:#d6ad4d;color:#71530e}
+html[data-theme="light"] .theme-toggle .theme-moon{display:none}
+html[data-theme="light"] .theme-toggle .theme-sun{display:block}
+html[data-theme="light"] .brand-logo{content:url("/static/ad-vandi-logo-light.svg")}
+html[data-theme="light"] body{
+  background:radial-gradient(ellipse at 10% 85%,rgba(75,111,179,.08),transparent 33%),
+    radial-gradient(ellipse at 88% 40%,rgba(176,143,69,.09),transparent 30%),var(--bg);
+}
+html[data-theme="light"] .chip{
+  border-color:var(--line);
+  background:rgba(255,255,255,.75);
+  color:var(--mu);
+}
+html[data-theme="light"] .eyebrow{color:#80631e}
+html[data-theme="light"] .eyebrow::before{background:#a58d4c}
+html[data-theme="light"] .hero h2 em{color:#80631e}
+html[data-theme="light"] .hero p,
+html[data-theme="light"] .start-meta,
+html[data-theme="light"] .step-card p{color:var(--mu)}
+html[data-theme="light"] .idle-led{
+  border-color:var(--line);
+  background:linear-gradient(135deg,#fff,#edf0f5);
+  box-shadow:var(--sh);
+}
+html[data-theme="light"] .idle-led-head,
+html[data-theme="light"] .idle-wait{color:var(--mu)}
+html[data-theme="light"] .awaiting{color:#80631e}
+html[data-theme="light"] .odo-digits span{
+  border-color:var(--line);
+  background:linear-gradient(145deg,#fff,#e7ebf1);
+  box-shadow:inset 0 2px 6px rgba(31,41,55,.08);
+  color:#515564;
+  text-shadow:none;
+}
+html[data-theme="light"] .idle-stats{border-top-color:var(--line)}
+html[data-theme="light"] .idle-stats b{color:var(--ink)}
+html[data-theme="light"] .idle-stats small{color:var(--mu)}
+html[data-theme="light"] .step-card{
+  border-color:var(--line);
+  background:rgba(255,255,255,.72);
+}
+html[data-theme="light"] .step-card:first-child{
+  background:linear-gradient(135deg,#e8eef9,#f7f9fc);
+}
+html[data-theme="light"] .step-number{color:rgba(34,41,56,.18)}
+html[data-theme="light"] .rep-table-wrap{background:var(--surface)}
+html[data-theme="light"] table.rep tbody tr:hover{background:rgba(31,41,55,.035)}
+html[data-theme="light"] .rep-sidebar{background:rgba(255,255,255,.92)}
+html[data-theme="light"] .rep-folder:hover{background:rgba(31,41,55,.045)}
+html[data-theme="light"] .rep-business-trigger:hover,
+html[data-theme="light"] .rep-toolbar-actions .rep-date-trigger:hover{background-color:#eee3c9}
+html[data-theme="light"] .rep-toolbar-actions input{color-scheme:light}
+html[data-theme="light"] .rep-bar input[type=date]{color-scheme:light}
+html[data-theme="light"] .rep-bar input[type=date]::-webkit-calendar-picker-indicator{
+  filter:none;
+}
+html[data-theme="light"] .pwa-toast{
+  border-color:var(--line);
+  background:var(--surface);
+  color:var(--ink);
+  box-shadow:var(--sh);
+}
+html[data-theme="light"] .ios-sheet{
+  border-color:var(--line);
+  background:var(--surface);
+  color:var(--ink);
+  box-shadow:var(--sh);
+}
+html[data-theme="light"] .ios-sheet h3{color:#80631e}
+html[data-theme="light"] .ios-sheet ol{color:var(--mu)}
+html[data-theme="light"] .ios-sheet strong{color:var(--ink)}
+@media(max-width:640px){
+  .report-main>.top>.top-right{gap:6px}
+}
