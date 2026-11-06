@@ -103,6 +103,9 @@ html[data-theme="light"] .ios-sheet{
 html[data-theme="light"] .ios-sheet h3{color:#80631e}
 html[data-theme="light"] .ios-sheet ol{color:var(--mu)}
 html[data-theme="light"] .ios-sheet strong{color:var(--ink)}
+@media(max-width:859px){
+  .theme-toggle{display:none}
+}
 @media(max-width:640px){
   .report-main>.top>.top-right{gap:6px}
 }
