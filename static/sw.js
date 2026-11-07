@@ -1,5 +1,34 @@
 /* Ad Vandi Service Worker (PWA) */
-const CACHE_NAME = 'advandi-v2.2';
+const CACHE_NAME = 'advandi-v2.3';
+const REPORT_IMAGE_CACHE_MAX_AGE = 24 * 60 * 60 * 1000;
+const REPORT_IMAGE_CACHE_LIMIT = 100;
+
+function reportImageCacheMetadataRequest(request) {
+    const url = new URL(request.url);
+    const metadataPath = '/__sw_cache__/report-image/' +
+        encodeURIComponent(url.pathname + url.search);
+    return new Request(new URL(metadataPath, self.location.origin));
+}
+
+async function trimReportImageCache(cache) {
+    const imageRequests = (await cache.keys()).filter(request => {
+        const url = new URL(request.url);
+        return url.origin === self.location.origin &&
+            url.pathname.startsWith('/report/image/');
+    });
+    if (imageRequests.length <= REPORT_IMAGE_CACHE_LIMIT) return;
+
+    const images = await Promise.all(imageRequests.map(async request => {
+        const metadata = await cache.match(reportImageCacheMetadataRequest(request));
+        const { cachedAt = 0 } = metadata ? await metadata.json() : {};
+        return { request, cachedAt: Number(cachedAt) || 0 };
+    }));
+    images.sort((a, b) => a.cachedAt - b.cachedAt);
+    await Promise.all(images.slice(0, images.length - REPORT_IMAGE_CACHE_LIMIT).map(async image => {
+        await cache.delete(image.request);
+        await cache.delete(reportImageCacheMetadataRequest(image.request));
+    }));
+}
 
 const PRECACHE_ASSETS = [
     '/',
@@ -62,6 +91,49 @@ self.addEventListener('fetch', event => {
 
     // Non-GET requests (e.g. POST /api/events, /api/extract) are handled directly by network
     if (req.method !== 'GET') {
+        return;
+    }
+
+    // Report image IDs are stable; cache them briefly for fast repeat views.
+    if (url.pathname.startsWith('/report/image/')) {
+        event.respondWith((async () => {
+            const cache = await caches.open(CACHE_NAME);
+            const metadataRequest = reportImageCacheMetadataRequest(req);
+            const cached = await cache.match(req);
+            const metadata = cached && await cache.match(metadataRequest);
+            if (cached && metadata) {
+                const { cachedAt = 0 } = await metadata.json();
+                const age = Date.now() - Number(cachedAt);
+                if (age >= 0 && age < REPORT_IMAGE_CACHE_MAX_AGE) {
+                    return cached;
+                }
+            }
+
+            let response;
+            try {
+                response = await fetch(req);
+            } catch (error) {
+                if (cached) return cached;
+                throw error;
+            }
+
+            if (response.status === 200 || response.type === 'opaque') {
+                try {
+                    await cache.put(req, response.clone());
+                    await cache.put(metadataRequest, new Response(
+                        JSON.stringify({ cachedAt: Date.now() }),
+                        { headers: { 'Content-Type': 'application/json' } }
+                    ));
+                    await trimReportImageCache(cache);
+                } catch (error) {
+                    console.warn('[SW] Could not cache report image:', error);
+                }
+            } else {
+                await cache.delete(req);
+                await cache.delete(metadataRequest);
+            }
+            return response;
+        })());
         return;
     }
 

@@ -13,6 +13,12 @@
     <title>Ad Vandi — Reports</title>
 
     <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js', { scope: '/' })
+                .catch(error => console.warn('[PWA] SW register:', error));
+        }
+    </script>
+    <script>
         (() => {
             try {
                 const theme = localStorage.getItem('advandi-theme');
