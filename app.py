@@ -14,6 +14,7 @@ from flask import Flask, abort, jsonify, make_response, redirect, render_templat
 import config, db
 import extractor
 import report as reportmod
+import retention
 import supabase_storage
 import pwa_assets
 from image_utils import normalize_jpeg
@@ -547,6 +548,19 @@ def api_check_late():
         return jsonify(check_late())
     except Exception as error:
         app.logger.error("check_late failed: %r", error)
+        return jsonify({"error": str(error)[:300]}), 500
+
+
+@app.route("/api/cron/cleanup", methods=["GET", "POST"])
+def api_cleanup():
+    """A scheduler calls this once a day (or hourly):  /api/cron/cleanup?key=YOUR_CRON_KEY
+    Add &dry_run=1 to only see what would be removed."""
+    if not _cron_allowed():
+        return jsonify({"error": "forbidden"}), 403
+    try:
+        return jsonify(retention.run_cleanup(dry_run=request.args.get("dry_run") == "1"))
+    except Exception as error:
+        app.logger.error("cleanup failed: %r", error)
         return jsonify({"error": str(error)[:300]}), 500
 
 

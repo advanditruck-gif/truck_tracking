@@ -292,3 +292,27 @@ def set_last_alert(run_id, when_iso):
         c.execute(_sql(
             f"INSERT INTO {_tbl('alert_state')}(run_id, last_sent) VALUES(?, ?) "
             "ON CONFLICT(run_id) DO UPDATE SET last_sent = EXCLUDED.last_sent"), (str(run_id), when_iso))
+
+
+# ---------- data retention ----------
+def events_by_types(types):
+    """Events whose type is in `types` -> [{"id","run","t","at","d"}]."""
+    types = list(types)
+    with conn() as c:
+        table = _tbl("events")
+        marks = ",".join(["%s" if DATABASE_URL else "?"] * len(types))
+        rows = c.execute(
+            f"SELECT id,run_id,t,at,data FROM {table} WHERE t IN ({marks}) ORDER BY id", tuple(types)
+        ).fetchall()
+    return [{"id": r[0], "run": r[1], "t": r[2], "at": r[3], "d": _decode_data(r[4])} for r in rows]
+
+
+def update_event_data(event_id, data):
+    """Replace the JSON data of one event (used to drop image_path after the image is deleted)."""
+    with conn() as c:
+        table = _tbl("events")
+        if DATABASE_URL:
+            from psycopg.types.json import Jsonb
+            c.execute(f"UPDATE {table} SET data = %s WHERE id = %s", (Jsonb(data), event_id))
+        else:
+            c.execute(f"UPDATE {table} SET data = ? WHERE id = ?", (json.dumps(data), event_id))

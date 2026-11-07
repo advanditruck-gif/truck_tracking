@@ -90,3 +90,8 @@ PROMPTS = {
            "return null for details not visible.",
     "fuel": "This is a fuel pump bill; the layout varies by pump. Read the values from the printed text.",
 }
+
+# ---- Data retention (see retention.py) ----
+RETENTION_TZ = os.getenv("RETENTION_TZ", "Asia/Kolkata")                  # month/day boundaries
+BILL_CLEAR_DAY = int(os.getenv("BILL_CLEAR_DAY", "10"))                   # bills cleared on this day of NEXT month
+IMAGE_RETENTION_DAYS = int(os.getenv("IMAGE_RETENTION_DAYS", "7"))        # odo/generator/location images kept this many days
