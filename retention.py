@@ -3,14 +3,16 @@
 Rule 1 - BILLS (fuel bills: Petrol / Diesel, and Other Expense bills)
     Everything recorded in a month is cleared on the BILL_CLEAR_DAY (default 10th)
     of the NEXT month.  Example: a bill uploaded in November is cleared on 10 December.
-    "Cleared" = the bill image is removed from Supabase Storage AND the record is
-    deleted from the database.
+    "Cleared" = the bill IMAGE is removed from Supabase Storage.
+    The database record (receipt no, amount, litres, reason ...) is KEPT.
 
 Rule 2 - OTHER IMAGES (Odometer / Cluster, Generator, Location photos)
     The image is deleted IMAGE_RETENTION_DAYS (default 7) days after upload.
     Example: uploaded 7 Nov -> deleted 14 Nov.
     Only the photo is removed; the text values (km, hours, address ...) stay in the
     database so reports keep working.
+
+NO database record is ever deleted by this module - only images.
 
 Month / day boundaries use RETENTION_TZ (default Asia/Kolkata).
 The "month" and the "upload time" of a record are taken from its recorded time
@@ -63,27 +65,36 @@ def image_delete_time(recorded_at):
     return _parse(recorded_at) + timedelta(days=config.IMAGE_RETENTION_DAYS)
 
 
+def _remove_image(ev, data, now):
+    """Delete the image file, then keep the record: only image_path is removed from its data."""
+    supabase_storage.delete_image(data["image_path"])   # if this fails, nothing changes; retried next run
+    data.pop("image_path", None)
+    data["image_deleted_at"] = now.isoformat()
+    db.update_event_data(ev["id"], data)
+
+
 def run_cleanup(dry_run=False, now=None):
     now = now or datetime.now(timezone.utc)
     summary = {
         "now": now.isoformat(), "dry_run": dry_run,
-        "bills_deleted": [], "images_deleted": [], "errors": [],
+        "bill_images_deleted": [], "other_images_deleted": [], "errors": [],
     }
 
-    # ---- Rule 1: bills -> delete image + record on the 10th of next month ----
+    # ---- Rule 1: bills -> delete only the IMAGE on the 10th of next month ----
     for ev in db.events_by_types(BILL_TYPES):
+        data = ev["d"] or {}
+        path = data.get("image_path")
+        if not path:
+            continue                                    # image already cleared
         try:
             if now < bill_clear_time(ev["at"]):
                 continue
         except (ValueError, TypeError):
             continue                                    # unreadable timestamp: never guess
-        path = (ev["d"] or {}).get("image_path")
         try:
             if not dry_run:
-                if path:
-                    supabase_storage.delete_image(path)  # if this fails, keep the row and retry next run
-                db.delete_event(ev["id"])
-            summary["bills_deleted"].append({"id": ev["id"], "type": ev["t"], "at": ev["at"]})
+                _remove_image(ev, data, now)
+            summary["bill_images_deleted"].append({"id": ev["id"], "type": ev["t"], "at": ev["at"]})
         except Exception as error:
             summary["errors"].append({"id": ev["id"], "error": str(error)[:200]})
 
@@ -100,11 +111,8 @@ def run_cleanup(dry_run=False, now=None):
             continue
         try:
             if not dry_run:
-                supabase_storage.delete_image(path)
-                data.pop("image_path", None)
-                data["image_deleted_at"] = now.isoformat()
-                db.update_event_data(ev["id"], data)
-            summary["images_deleted"].append({"id": ev["id"], "type": ev["t"], "at": ev["at"]})
+                _remove_image(ev, data, now)
+            summary["other_images_deleted"].append({"id": ev["id"], "type": ev["t"], "at": ev["at"]})
         except Exception as error:
             summary["errors"].append({"id": ev["id"], "error": str(error)[:200]})
 
