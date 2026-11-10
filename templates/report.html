@@ -41,7 +41,7 @@
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600;700&display=swap">
     </noscript>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=20) }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='report.css', v=32) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='report.css', v=33) }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='theme.css', v=3) }}">
 </head>
 
@@ -66,6 +66,10 @@
 
         <div id="app" class="report-app"></div>
     </main>
+    <div class="data-analyst-watermark" aria-hidden="true">
+        <div class="watermark-title">Data Analyst Team</div>
+        <div class="watermark-name">MAGNUS</div>
+    </div>
     <script src="{{ url_for('static', filename='theme.js', v=1) }}"></script>
     <script src="{{ url_for('static', filename='report.js', v=44) }}"></script>
 </body>
