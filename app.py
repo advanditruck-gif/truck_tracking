@@ -340,7 +340,12 @@ def api_extract():
     kind, img = request.form.get("kind", ""), request.files.get("image")
     if kind not in config.PROMPTS or not img:
         return jsonify({}), 400
-    return jsonify(extract(kind, img.read()))
+    image_bytes = img.read()
+    app.logger.info("Extract request kind=%s image_bytes=%d", kind, len(image_bytes))
+    try:
+        return jsonify(extract(kind, image_bytes))
+    except extractor.GeminiUnavailableError:
+        return jsonify({"error": "AI busy, try again"}), 503
 
 
 @app.get("/api/check-receipt")
