@@ -21,8 +21,11 @@
         .panel, article { background: #111827; border: 1px solid #293449; border-radius: 12px; padding: 18px; margin: 16px 0; }
         input, button { font: inherit; padding: 10px 12px; border-radius: 7px; border: 1px solid #52617a; }
         input { width: min(100%, 420px); box-sizing: border-box; background: #080c16; color: white; }
+        textarea { width: 100%; min-height: 180px; box-sizing: border-box; padding: 12px; border: 1px solid #52617a; border-radius: 7px; background: #080c16; color: white; font: 14px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
         button { background: #263c61; cursor: pointer; }
         .danger { background: #652e36; }
+        .edit { margin-top: 12px; }
+        .edit-toggle { display: inline-block; padding: 10px 12px; border: 1px solid #52617a; border-radius: 7px; background: #263c61; color: #c7d7ff; cursor: pointer; }
         .error { color: #ff9a9a; }
         .notice { color: #a7f3c1; }
         .actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
@@ -51,7 +54,9 @@
         </form>
         {% else %}
         {% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
+        {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
         <div class="actions">
+            <a href="{{ url_for('report_page') }}">Open report view</a>
             <a href="{{ url_for('admin_export') }}">Download CSV</a>
             <form method="post" action="{{ url_for('admin_logout') }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -74,6 +79,16 @@
             <p><a href="{{ url_for('admin_event_image', event_id=event.id) }}" target="_blank" rel="noopener">View captured image</a></p>
             {% endif %}
             <pre>{{ event.d|tojson(indent=2) }}</pre>
+            <details class="edit">
+                <summary class="edit-toggle">Edit record</summary>
+                <form method="post" action="{{ url_for('admin_edit_event', event_id=event.id) }}"
+                    onsubmit="return confirm('Save changes to record #{{ event.id }}?')">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <p><label for="data-{{ event.id }}">Record data (JSON)</label></p>
+                    <p><textarea id="data-{{ event.id }}" name="data_json" required spellcheck="false">{{ event.d|tojson(indent=2) }}</textarea></p>
+                    <button type="submit">Save changes</button>
+                </form>
+            </details>
         </article>
         {% else %}
         <p>No records found.</p>

@@ -160,6 +160,47 @@ def delete_event(event_id):
         return cursor.rowcount > 0
 
 
+def edit_event_data(event_id, data):
+    """Replace an event's editable data while keeping its receipt index in sync."""
+    event = admin_event(event_id)
+    if not event:
+        return False
+
+    receipt = data.get("receipt_no") if event["t"] == "fuel" else None
+    receipt = str(receipt).strip() if receipt is not None else None
+    receipt = receipt or None
+    if receipt:
+        existing = get_fuel_receipt(receipt)
+        if existing and existing["id"] != event_id:
+            raise DuplicateReceiptError(f"Fuel receipt {receipt} already exists")
+
+    table = _tbl("events")
+    if DATABASE_URL:
+        import psycopg
+        from psycopg.types.json import Jsonb
+
+        try:
+            with conn() as c:
+                cursor = c.execute(
+                    f"UPDATE {table} SET data = %s, receipt = %s WHERE id = %s",
+                    (Jsonb(data), receipt, event_id),
+                )
+                updated = cursor.rowcount
+        except psycopg.errors.UniqueViolation as error:
+            raise DuplicateReceiptError from error
+    else:
+        try:
+            with conn() as c:
+                cursor = c.execute(
+                    f"UPDATE {table} SET data = ?, receipt = ? WHERE id = ?",
+                    (json.dumps(data), receipt, event_id),
+                )
+                updated = cursor.rowcount
+        except sqlite3.IntegrityError as error:
+            raise DuplicateReceiptError from error
+    return updated > 0
+
+
 def _decode_data(value):
     return json.loads(value) if isinstance(value, str) else value
 

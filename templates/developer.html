@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#080c16">
+    <title>Developer sign in - Ad Vandi</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=20) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='theme.css', v=3) }}">
+    <style>
+        body { padding: 28px 16px; }
+        main { width: min(100%, 480px); margin: 0 auto; }
+        .developer-panel { margin-top: 24px; padding: 22px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
+        .developer-panel h1 { margin-bottom: 8px; font-size: 24px; }
+        .developer-panel p { margin: 10px 0; color: var(--mu); }
+        .developer-panel label { display: block; margin: 14px 0 6px; }
+        .developer-panel input { width: 100%; }
+        .developer-error { color: var(--wr) !important; }
+        .developer-link { color: var(--ink); }
+    </style>
+</head>
+
+<body>
+    <main>
+        <a class="developer-link" href="{{ url_for('report_page') }}">← Back to reports</a>
+        <section class="developer-panel">
+            {% if not credentials_configured %}
+            <h1>Developer account not configured</h1>
+            <p>Set <code>DEVELOPER_USERNAME</code> and a private <code>DEVELOPER_PASSWORD</code> of at least 32 characters in the server environment, then restart the app.</p>
+            {% elif authenticated %}
+            <h1>Developer signed in</h1>
+            <p>Report editing is enabled for this browser session.</p>
+            <form method="post" action="{{ url_for('developer_logout') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit">Sign out developer</button>
+            </form>
+            <p><a class="developer-link" href="{{ url_for('report_page') }}">Open report view</a></p>
+            {% else %}
+            <h1>Developer sign in</h1>
+            <p>Only the developer account can edit report records. Report viewers remain read-only.</p>
+            {% if error %}<p class="developer-error" role="alert">{{ error }}</p>{% endif %}
+            <form method="post" action="{{ url_for('developer_login') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <label for="developer-username">Username</label>
+                <input id="developer-username" type="text" name="username" autocomplete="username" required>
+                <label for="developer-password">Password</label>
+                <input id="developer-password" type="password" name="password" autocomplete="current-password" required>
+                <button type="submit">Sign in</button>
+            </form>
+            {% endif %}
+        </section>
+    </main>
+</body>
+
+</html>

@@ -21,6 +21,8 @@ HAS_EASYOCR = importlib.util.find_spec("easyocr") is not None  # really check th
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 ADMIN_KEY = os.getenv("ADMIN_KEY", "")
+DEVELOPER_USERNAME = os.getenv("DEVELOPER_USERNAME", "")
+DEVELOPER_PASSWORD = os.getenv("DEVELOPER_PASSWORD", "")
 MODEL = "gemini-3.5-flash-lite"
 DB_PATH = os.getenv("DB_PATH", "tracker.db")
 DATABASE_URL = os.getenv("DATABASE_URL", "")

@@ -41,7 +41,7 @@
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600;700&display=swap">
     </noscript>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=20) }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='report.css', v=33) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='report.css', v=36) }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='theme.css', v=3) }}">
 </head>
 
@@ -56,6 +56,15 @@
                 <img class="brand-logo" src="{{ url_for('static', filename='ad-vandi-logo.png', v=1) }}" alt="Ad Vandi run log">
             </a>
             <div class="top-right">
+                {% if edit_enabled %}
+                <span class="rep-edit-status">Developer editing enabled</span>
+                <form method="post" action="{{ url_for('developer_logout') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button class="report-link rep-dev-logout" type="submit">Sign out</button>
+                </form>
+                {% else %}
+                <a class="report-link" href="{{ url_for('developer_page') }}">Developer sign in</a>
+                {% endif %}
                 <a class="report-link" href="/">Back to run log</a>
                 <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Switch to light theme" title="Switch to light theme">
                     <svg class="theme-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.2 15.1A8.5 8.5 0 0 1 8.9 3.8 8.6 8.6 0 1 0 20.2 15.1Z"/></svg>
@@ -64,14 +73,15 @@
             </div>
         </header>
 
-        <div id="app" class="report-app"></div>
+        <div id="app" class="report-app" data-edit-enabled="{{ 'true' if edit_enabled else 'false' }}"
+            data-csrf-token="{{ csrf_token }}"></div>
     </main>
     <div class="data-analyst-watermark" aria-hidden="true">
         <div class="watermark-title">Data Analyst Team</div>
         <div class="watermark-name">MAGNUS</div>
     </div>
     <script src="{{ url_for('static', filename='theme.js', v=1) }}"></script>
-    <script src="{{ url_for('static', filename='report.js', v=44) }}"></script>
+    <script src="{{ url_for('static', filename='report.js', v=47) }}"></script>
 </body>
 
 </html>

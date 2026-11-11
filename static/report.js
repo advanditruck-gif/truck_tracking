@@ -1,5 +1,8 @@
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const reportApp = $('#app');
+const EDIT_ENABLED = reportApp.dataset.editEnabled === 'true';
+const EDIT_CSRF_TOKEN = reportApp.dataset.csrfToken || '';
 const inr = v => '₹' + (+v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 });
 const inrShare = v => '₹' + (+v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 const km = v => v == null ? '—' : (+v).toLocaleString('en-IN');
@@ -514,11 +517,16 @@ function renderRecords(records) {
               esc(record.type === 'other_expense' ? (record.data.reason || 'Other expense bill') :
                   labels[record.type] || 'Uploaded image') + '">Open image</button>'
             : '';
+        const editButton = EDIT_ENABLED
+            ? '<button class="rep-edit-button" type="button" data-edit-record="' + record.id +
+              '" aria-label="Edit ' + esc(labels[record.type] || record.type.replace(/_/g, ' ')) +
+              '" title="Edit record">' + pencilIcon() + '</button>'
+            : '';
         return '<article class="rep-record"><header><div><h3>' +
             esc(labels[record.type] || record.type.replace(/_/g, ' ')) +
             (record.type === 'fuel' ? ' · ' + esc(record.data.fuel_for || record.data.product || '') : '') +
             '</h3><span>' + esc(fmtDate(recordDate(record))) + ' · ' + esc(time) + '</span></div>' +
-            '<small>Run ' + esc(record.run ?? '—') + '</small></header>' +
+            '<div class="rep-record-actions"><small>Run ' + esc(record.run ?? '—') + '</small>' + editButton + '</div></header>' +
             '<div class="rep-details">' + (detailRows || '<span class="mu">No text details stored.</span>') +
             '</div>' + imageLink + '</article>';
     }).join('');
@@ -527,6 +535,109 @@ function renderRecords(records) {
         (cards ? '<div class="rep-record-list">' + cards + '</div>' :
             '<div class="rep-empty">No records in this folder for the selected date.</div>') +
         '</section>';
+}
+
+function pencilIcon() {
+    return '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" ' +
+        'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+        '<path d="m15 5 4 4M4 20l4-.8L19 8a2.1 2.1 0 0 0-3-3L5 16z"/></svg>';
+}
+
+function closeEditDialog(dialog) {
+    if (dialog) dialog.remove();
+}
+
+function openRunRecordPicker(runId) {
+    const records = RECORDS.filter(record => String(record.run ?? '') === runId)
+        .sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')));
+    const dialog = document.createElement('div');
+    dialog.className = 'rep-edit-backdrop';
+    dialog.setAttribute('role', 'presentation');
+    const rows = records.map(record => {
+        const label = labels[record.type] || record.type.replace(/_/g, ' ');
+        return '<button class="rep-edit-record-option" type="button" data-edit-record="' + record.id + '">' +
+            '<span><b>' + esc(label) + '</b><small>' + esc(fmtDate(recordDate(record))) + ' · ' +
+            esc(record.at && !isNaN(new Date(record.at))
+                ? new Date(record.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+                : 'Time unavailable') + '</small></span>' + pencilIcon() + '</button>';
+    }).join('');
+    dialog.innerHTML = '<section class="rep-edit-dialog" role="dialog" aria-modal="true" aria-labelledby="rep-edit-title">' +
+        '<header><div><h2 id="rep-edit-title">Edit run records</h2><p>Choose the record you want to update.</p></div>' +
+        '<button class="rep-edit-close" type="button" aria-label="Close" data-edit-close>×</button></header>' +
+        '<div class="rep-edit-record-options">' + (rows || '<p class="rep-empty">No records found for this run.</p>') +
+        '</div></section>';
+    dialog.addEventListener('click', event => {
+        if (event.target === dialog || event.target.closest('[data-edit-close]')) closeEditDialog(dialog);
+        const recordButton = event.target.closest('[data-edit-record]');
+        if (recordButton) {
+            closeEditDialog(dialog);
+            openRecordEditor(recordButton.dataset.editRecord);
+        }
+    });
+    document.body.append(dialog);
+    dialog.querySelector('[data-edit-close]').focus();
+}
+
+function openRecordEditor(recordId) {
+    const record = RECORDS.find(item => String(item.id) === String(recordId));
+    if (!record) return;
+    const dialog = document.createElement('div');
+    dialog.className = 'rep-edit-backdrop';
+    dialog.innerHTML = '<section class="rep-edit-dialog" role="dialog" aria-modal="true" aria-labelledby="rep-edit-title">' +
+        '<header><div><h2 id="rep-edit-title">Edit ' + esc(labels[record.type] || record.type.replace(/_/g, ' ')) +
+        '</h2><p>Changes are saved to the database.</p></div>' +
+        '<button class="rep-edit-close" type="button" aria-label="Close" data-edit-close>×</button></header>' +
+        '<form class="rep-edit-form"><label for="rep-edit-data">Record data (JSON)</label>' +
+        '<textarea id="rep-edit-data" spellcheck="false" required></textarea>' +
+        '<p class="rep-edit-error" role="alert" hidden></p>' +
+        '<footer><button class="g" type="button" data-edit-close>Cancel</button>' +
+        '<button type="submit">Save changes</button></footer></form></section>';
+    const form = dialog.querySelector('.rep-edit-form');
+    const textarea = dialog.querySelector('#rep-edit-data');
+    const error = dialog.querySelector('.rep-edit-error');
+    textarea.value = JSON.stringify(record.data || {}, null, 2);
+    dialog.addEventListener('click', event => {
+        if (event.target === dialog || event.target.closest('[data-edit-close]')) closeEditDialog(dialog);
+    });
+    form.addEventListener('submit', async event => {
+        event.preventDefault();
+        let data;
+        try {
+            data = JSON.parse(textarea.value);
+        } catch {
+            error.textContent = 'Enter valid JSON before saving.';
+            error.hidden = false;
+            return;
+        }
+        if (!data || typeof data !== 'object' || Array.isArray(data)) {
+            error.textContent = 'Record data must be a JSON object.';
+            error.hidden = false;
+            return;
+        }
+        const submit = form.querySelector('[type="submit"]');
+        submit.disabled = true;
+        error.hidden = true;
+        try {
+            const response = await fetch('/api/admin/edit/' + encodeURIComponent(record.id), {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': EDIT_CSRF_TOKEN
+                },
+                body: JSON.stringify({ data })
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || 'Could not save this record.');
+            closeEditDialog(dialog);
+            await load();
+        } catch (saveError) {
+            error.textContent = saveError.message;
+            error.hidden = false;
+            submit.disabled = false;
+        }
+    });
+    document.body.append(dialog);
+    textarea.focus();
 }
 
 function renderRunKpis() {
@@ -573,13 +684,17 @@ function renderRunSummary() {
         '</td><td>' + inr(report.other_expense_amount) +
         '</td><td>' + inr(report.collected_amount) + '</td>' +
         '<td>' + inr(report.balance_amount) + '</td><td>' + esc(report.areas_covered.join(', ') || '—') + '</td>' +
-        '<td>' + (report.is_open ? 'In progress' : 'Closed') + '</td></tr>').join('');
+        '<td>' + (report.is_open ? 'In progress' : 'Closed') + '</td>' +
+        (EDIT_ENABLED ? '<td><button class="rep-edit-button" type="button" data-edit-run="' +
+            esc(report.run ?? '') + '" aria-label="Edit records in this run" title="Edit records in this run">' +
+            pencilIcon() + '</button></td>' : '') + '</tr>').join('');
     const table = '<section class="rep-section"><div class="rep-section-head"><h2>Run summary</h2>' +
         '<button class="g rep-export" id="rep-csv" type="button">Export CSV</button></div>' +
         (rows ? '<div class="rep-table-wrap"><table class="rep"><thead><tr><th>Date</th><th>Start KM</th>' +
             '<th>Start time</th><th>End KM</th><th>End time</th><th>Distance</th>' +
             '<th>Generator start (h)</th><th>Generator end (h)</th><th>Generator used (h)</th><th>Petrol</th><th>Diesel</th>' +
-            '<th>Other expense</th><th>Collected</th><th>Balance</th><th>Areas</th><th>Status</th></tr></thead><tbody>' + rows +
+            '<th>Other expense</th><th>Collected</th><th>Balance</th><th>Areas</th><th>Status</th>' +
+            (EDIT_ENABLED ? '<th>Edit</th>' : '') + '</tr></thead><tbody>' + rows +
             '</tbody></table></div>' : '<div class="rep-empty">No runs for the selected date.</div>') +
         '</section>';
     return table;
@@ -780,4 +895,13 @@ function draw() {
 }
 
 setupImageViewer();
+reportApp.addEventListener('click', event => {
+    const runButton = event.target.closest('[data-edit-run]');
+    if (runButton && EDIT_ENABLED) {
+        openRunRecordPicker(runButton.dataset.editRun);
+        return;
+    }
+    const recordButton = event.target.closest('[data-edit-record]');
+    if (recordButton && EDIT_ENABLED) openRecordEditor(recordButton.dataset.editRecord);
+});
 load();

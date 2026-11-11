@@ -34,6 +34,10 @@ def _admin_key_is_configured():
     return len(config.ADMIN_KEY.encode("utf-8")) >= 32
 
 
+def _developer_credentials_are_configured():
+    return bool(config.DEVELOPER_USERNAME) and len(config.DEVELOPER_PASSWORD.encode("utf-8")) >= 32
+
+
 def _admin_csrf_token():
     token = session.get("admin_csrf_token")
     if not token:
@@ -45,6 +49,20 @@ def _admin_csrf_token():
 def _valid_admin_csrf():
     token = session.get("admin_csrf_token", "")
     submitted = request.form.get("csrf_token", "")
+    return bool(token and submitted and hmac.compare_digest(token, submitted))
+
+
+def _developer_csrf_token():
+    token = session.get("developer_csrf_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session["developer_csrf_token"] = token
+    return token
+
+
+def _valid_developer_csrf(submitted=None):
+    token = session.get("developer_csrf_token", "")
+    submitted = submitted if submitted is not None else request.form.get("csrf_token", "")
     return bool(token and submitted and hmac.compare_digest(token, submitted))
 
 
@@ -96,7 +114,60 @@ def static_icons(filename):
 
 @app.get("/report")
 def report_page():
-    return render_template("report.html")
+    edit_enabled = bool(
+        _developer_credentials_are_configured() and session.get("developer_authenticated")
+    )
+    return render_template(
+        "report.html",
+        edit_enabled=edit_enabled,
+        csrf_token=_developer_csrf_token() if edit_enabled else "",
+    )
+
+
+@app.get("/developer")
+def developer_page():
+    if not _developer_credentials_are_configured():
+        return render_template("developer.html", credentials_configured=False), 503
+    return render_template(
+        "developer.html",
+        credentials_configured=True,
+        authenticated=bool(session.get("developer_authenticated")),
+        csrf_token=_developer_csrf_token(),
+        error=request.args.get("error", ""),
+    )
+
+
+@app.post("/developer/login")
+def developer_login():
+    if not _developer_credentials_are_configured():
+        return render_template("developer.html", credentials_configured=False), 503
+    if not _valid_developer_csrf():
+        abort(400, "Invalid form token.")
+    username = request.form.get("username", "")
+    password = request.form.get("password", "")
+    valid_username = hmac.compare_digest(config.DEVELOPER_USERNAME, username)
+    valid_password = hmac.compare_digest(config.DEVELOPER_PASSWORD, password)
+    if not (valid_username and valid_password):
+        return render_template(
+            "developer.html",
+            credentials_configured=True,
+            authenticated=False,
+            csrf_token=_developer_csrf_token(),
+            error="Invalid developer username or password.",
+        ), 401
+    session.clear()
+    session["developer_authenticated"] = True
+    session["developer_username"] = config.DEVELOPER_USERNAME
+    _developer_csrf_token()
+    return redirect(url_for("report_page"))
+
+
+@app.post("/developer/logout")
+def developer_logout():
+    if not session.get("developer_authenticated") or not _valid_developer_csrf():
+        abort(400, "Invalid form token.")
+    session.clear()
+    return redirect(url_for("report_page"))
 
 
 @app.get("/admin")
@@ -110,7 +181,7 @@ def admin_page():
         csrf_token=_admin_csrf_token(),
         events=db.admin_events() if session.get("admin_authenticated") else [],
         notice=request.args.get("notice", ""),
-        error="",
+        error=request.args.get("error", ""),
     )
 
 
@@ -165,6 +236,68 @@ def admin_delete_event(event_id):
     deleted = db.delete_event(event_id)
     notice = "Record deleted." if deleted else "Record not found."
     return redirect(url_for("admin_page", notice=notice))
+
+
+@app.post("/admin/edit/<int:event_id>")
+def admin_edit_event(event_id):
+    if not _admin_key_is_configured():
+        return render_template("admin.html", key_configured=False), 503
+    auth_redirect = _require_admin()
+    if auth_redirect:
+        return auth_redirect
+    if not _valid_admin_csrf():
+        abort(400, "Invalid form token.")
+
+    event = db.admin_event(event_id)
+    if not event:
+        abort(404)
+    try:
+        data = json.loads(request.form.get("data_json", ""))
+    except json.JSONDecodeError:
+        return redirect(url_for("admin_page", error=f"Record #{event_id}: enter valid JSON."))
+    if not isinstance(data, dict):
+        return redirect(url_for("admin_page", error=f"Record #{event_id}: data must be a JSON object."))
+
+    if event["d"].get("image_path"):
+        data["image_path"] = event["d"]["image_path"]
+    try:
+        updated = db.edit_event_data(event_id, data)
+    except db.DuplicateReceiptError:
+        return redirect(url_for("admin_page", error=f"Record #{event_id}: that fuel receipt number is already in use."))
+    except Exception:
+        app.logger.exception("Could not update admin event %s", event_id)
+        return redirect(url_for("admin_page", error=f"Record #{event_id} could not be saved. Check the server logs."))
+    notice = "Record updated." if updated else "Record not found."
+    return redirect(url_for("admin_page", notice=notice))
+
+
+@app.post("/api/admin/edit/<int:event_id>")
+def api_admin_edit_event(event_id):
+    if not _developer_credentials_are_configured() or not session.get("developer_authenticated"):
+        return jsonify({"error": "Developer sign-in is required to edit report records."}), 401
+    token = session.get("developer_csrf_token", "")
+    submitted = request.headers.get("X-CSRF-Token", "")
+    if not _valid_developer_csrf(submitted):
+        return jsonify({"error": "Invalid form token. Reload the report and try again."}), 400
+
+    payload = request.get_json(silent=True)
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, dict):
+        return jsonify({"error": "Record data must be a JSON object."}), 400
+    event = db.admin_event(event_id)
+    if not event:
+        return jsonify({"error": "Record not found."}), 404
+    if event["d"].get("image_path"):
+        data["image_path"] = event["d"]["image_path"]
+    try:
+        if not db.edit_event_data(event_id, data):
+            return jsonify({"error": "Record not found."}), 404
+    except db.DuplicateReceiptError:
+        return jsonify({"error": "That fuel receipt number is already in use."}), 409
+    except Exception:
+        app.logger.exception("Could not update report event %s", event_id)
+        return jsonify({"error": "Could not save this record. Check the server logs."}), 500
+    return jsonify({"ok": True})
 
 
 @app.get("/admin/image/<int:event_id>")
