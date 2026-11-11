@@ -458,12 +458,23 @@ async function snap(kind, title, extra = {}) {
         delete d.error;
     }
     const hasValues = FIELDS[kind].some(k => d && d[k] != null && String(d[k]).trim() !== '');
-    const note = kind === 'geo'
-        ? (err && !noGeoText
-            ? 'Image text reading failed: ' + err + '. Address details use phone GPS when available.'
-            : (!hasValues ? 'No overlay text was recognized; address details use phone GPS when available.' : '')) +
-          ' Address lookup uses OpenStreetMap (© OpenStreetMap contributors).' + (geoError ? ' ' + geoError : '')
-        : (err ? 'Reading failed: ' + err : (!hasValues ? 'No values returned. Server replied: ' + JSON.stringify(d) + ' (open /api/ping to check the server version)' : (kind === 'cluster' && !validOdometer(v.km) ? 'The odometer was not read. Cancel and retake the photo.' : (kind === 'generator' && !validGeneratorHours(v.hours) ? 'The generator hour-meter reading was not read. Cancel and retake the photo.' : '')));
+    let note = '';
+    if (kind === 'geo') {
+        if (err && !noGeoText) {
+            note = 'Image text reading failed: ' + err + '. Address details use phone GPS when available.';
+        } else if (!hasValues) {
+            note = 'No overlay text was recognized; address details use phone GPS when available.';
+        }
+        note += ' Address lookup uses OpenStreetMap (© OpenStreetMap contributors).' + (geoError ? ' ' + geoError : '');
+    } else if (err) {
+        note = 'Reading failed: ' + err;
+    } else if (!hasValues) {
+        note = 'No values returned. Server replied: ' + JSON.stringify(d) + ' (open /api/ping to check the server version)';
+    } else if (kind === 'cluster' && !validOdometer(v.km)) {
+        note = 'The odometer was not read. Cancel and retake the photo.';
+    } else if (kind === 'generator' && !validGeneratorHours(v.hours)) {
+        note = 'The generator hour-meter reading was not read. Cancel and retake the photo.';
+    }
     const o = await review(title, kind, v, URL.createObjectURL(b), note);
     return o && { o, th, image: b, capturedAt: capturedAt.toISOString() }
 }
