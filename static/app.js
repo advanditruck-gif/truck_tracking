@@ -418,7 +418,9 @@ async function snap(kind, title, extra = {}) {
     const [d, th, g] = await Promise.all([extract(kind, b), thumb(b), gpsFinal]);
     done();
     const extractionError = d && (d._error || d.error);
-    if (extractionError) {
+    const noGeoText = kind === 'geo' && typeof extractionError === 'string' &&
+        extractionError.startsWith('Image received but no values returned:');
+    if (extractionError && !noGeoText) {
         const message = String(extractionError);
         showToast(/try again/i.test(message) ? message : message + '. Try again.');
         return null;
@@ -450,12 +452,14 @@ async function snap(kind, title, extra = {}) {
             v.time = v.time || captureTime;
         }
     }
-    const err = d && d._error;
-    if (d) delete d._error;
+    const err = d && (d._error || d.error);
+    if (d) {
+        delete d._error;
+        delete d.error;
+    }
     const hasValues = FIELDS[kind].some(k => d && d[k] != null && String(d[k]).trim() !== '');
-    const noOverlayText = err && err.startsWith('Image received but no values returned:');
     const note = kind === 'geo'
-        ? (err && !noOverlayText
+        ? (err && !noGeoText
             ? 'Image text reading failed: ' + err + '. Address details use phone GPS when available.'
             : (!hasValues ? 'No overlay text was recognized; address details use phone GPS when available.' : '')) +
           ' Address lookup uses OpenStreetMap (© OpenStreetMap contributors).' + (geoError ? ' ' + geoError : '')
