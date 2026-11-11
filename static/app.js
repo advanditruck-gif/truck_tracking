@@ -20,7 +20,7 @@ async function extract(kind, blob) {
     try {
         if (sample) return await sample.json(P[kind] + ' Reply with JSON only; null if unreadable.', { images: [blob] });
         const f = new FormData(); f.append('kind', kind); f.append('image', blob, 'p.jpg');
-        const r = await fetch('/api/extract', { method: 'POST', body: f }); if (!r.ok) return { _error: 'Server error ' + r.status + ' (see the terminal running app.py)' }; return await r.json();
+        const r = await fetch('/api/extract', { method: 'POST', body: f }); const data = await r.json(); if (!r.ok) return { _error: data.error || 'Server error ' + r.status + '. Try again.' }; return data;
     } catch (e) { return { _error: 'Cannot reach server: ' + e.message } }
 }
 async function reverseGeocode(coords) {
@@ -417,6 +417,12 @@ async function snap(kind, title, extra = {}) {
     const capturedAt = new Date(), done = busy('Reading image…');
     const [d, th, g] = await Promise.all([extract(kind, b), thumb(b), gpsFinal]);
     done();
+    const extractionError = d && (d._error || d.error);
+    if (extractionError) {
+        const message = String(extractionError);
+        showToast(/try again/i.test(message) ? message : message + '. Try again.');
+        return null;
+    }
     const gps = (g && g.c) || '', gpsErr = (g && g.err) || '';
     const v = Object.assign({}, d, extra);
     if (kind === 'geo') v.device_gps = gps;

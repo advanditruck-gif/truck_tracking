@@ -1,11 +1,17 @@
 import base64, json, os, re
+import random, time
 from datetime import datetime
-import urllib.request, urllib.error
+import urllib.request
 import config
 from config import DATE_FMT, ENGINE, MODEL, PROMPTS, SCHEMAS
 
 VERSION = "gemini-first-v2"
-_genai_client = None
+MAX_RETRIES = 4
+RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+
+
+class GeminiUnavailableError(Exception):
+    """Raised when Gemini remains unavailable after all retry attempts."""
 
 
 def _get_api_key():
@@ -164,10 +170,103 @@ def _call_gemini_rest(model_name, api_key, prompt, image_bytes):
     return res["candidates"][0]["content"]["parts"][0]["text"]
 
 
+def _gemini_status_code(error):
+    for attribute in ("code", "status_code"):
+        value = getattr(error, attribute, None)
+        if callable(value):
+            value = value()
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            pass
+
+    message = str(error).upper()
+    for status, markers in (
+        (503, ("UNAVAILABLE",)),
+        (429, ("RESOURCE_EXHAUSTED",)),
+        (500, ("INTERNAL",)),
+        (502, ("BAD_GATEWAY",)),
+        (504, ("DEADLINE_EXCEEDED", "GATEWAY_TIMEOUT")),
+    ):
+        if any(marker in message for marker in markers):
+            return status
+
+    match = re.search(r"\b(429|500|502|503|504)\b", message)
+    return int(match.group(1)) if match else None
+
+
+def _call_gemini_once(contents, generation_config):
+    api_key = _get_api_key()
+    try:
+        from google import genai
+        from google.genai import types
+    except ImportError:
+        genai = None
+        types = None
+
+    if genai is not None:
+        client = genai.Client(api_key=api_key)
+        sdk_contents = [
+            types.Part.from_bytes(
+                data=part["inline_data"]["data"],
+                mime_type=part["inline_data"]["mime_type"],
+            )
+            if "inline_data" in part
+            else part["text"]
+            for part in contents
+        ]
+        response = client.models.generate_content(
+            model=MODEL,
+            contents=sdk_contents,
+            config=types.GenerateContentConfig(**generation_config),
+        )
+        return response.text
+
+    prompt = contents[1]["text"]
+    image_bytes = contents[0]["inline_data"]["data"]
+    try:
+        import google.generativeai as genai
+    except ImportError:
+        return _call_gemini_rest(MODEL, api_key, prompt, image_bytes)
+
+    genai.configure(api_key=api_key)
+    g_model = genai.GenerativeModel(MODEL)
+    response = g_model.generate_content(
+        [
+            {"mime_type": "image/jpeg", "data": image_bytes},
+            prompt,
+        ],
+        generation_config=generation_config,
+    )
+    return response.text
+
+
+def call_gemini(contents, config):
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            return _call_gemini_once(contents, config)
+        except Exception as error:
+            if _gemini_status_code(error) not in RETRYABLE_STATUS_CODES:
+                raise
+            if attempt == MAX_RETRIES:
+                print(
+                    f"Gemini failed after attempt {attempt + 1}/{MAX_RETRIES + 1}: "
+                    f"{error}"
+                )
+                raise GeminiUnavailableError(str(error)) from error
+
+            retry_number = attempt + 1
+            print(
+                f"Gemini retry {retry_number}/{MAX_RETRIES} "
+                f"(attempt {attempt + 1}/{MAX_RETRIES + 1}) after error: {error}"
+            )
+            delay = 2 ** attempt
+            time.sleep(delay + random.uniform(0, delay * 0.25))
+
+
 def extract_gemini(kind, image_bytes):
     """Read an image with Gemini vision.
-    Supports official google-genai, google-generativeai, and direct REST API.
-    On failure returns {"_error": "..."} so the page can show the reason."""
+    Supports official google-genai, google-generativeai, and direct REST API."""
     api_key = _get_api_key()
     if not api_key:
         return {"_error": "GEMINI_API_KEY is not set. Please add it to your .env file."}
@@ -244,22 +343,8 @@ def extract_gemini(kind, image_bytes):
             data = _clean(_parse_model_json(raw_text))
             print("extract", kind, "using", model_name, "->", data)
             if all(v in (None, "") for v in data.values()):
-                if kind == "geo":
-                    return data
                 return {"_error": "Image received but no values returned: " + json.dumps(data)}
             return data
-
-        except Exception as e:
-            last_error = e
-            err_msg = str(e)
-            print(f"Gemini model {model_name} failed: {err_msg}")
-            # model retired (404), quota hit (429) or overloaded (503): try the next model
-            if any(c in err_msg for c in ("404", "429", "503", "RESOURCE_EXHAUSTED", "UNAVAILABLE")) \
-                    or "not found" in err_msg.lower():
-                continue
-            break
-
-    return {"_error": f"{type(last_error).__name__}: {last_error}"[:300]}
 
 
 # Alias for backward compatibility
