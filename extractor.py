@@ -244,6 +244,8 @@ def extract_gemini(kind, image_bytes):
             data = _clean(_parse_model_json(raw_text))
             print("extract", kind, "using", model_name, "->", data)
             if all(v in (None, "") for v in data.values()):
+                if kind == "geo":
+                    return data
                 return {"_error": "Image received but no values returned: " + json.dumps(data)}
             return data
 

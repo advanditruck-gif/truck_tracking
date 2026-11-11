@@ -1,5 +1,5 @@
 /* Ad Vandi Service Worker (PWA) */
-const CACHE_NAME = 'advandi-v2.3';
+const CACHE_NAME = 'advandi-v2.4';
 const REPORT_IMAGE_CACHE_MAX_AGE = 24 * 60 * 60 * 1000;
 const REPORT_IMAGE_CACHE_LIMIT = 100;
 

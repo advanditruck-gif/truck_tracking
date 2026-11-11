@@ -444,7 +444,16 @@ async function snap(kind, title, extra = {}) {
             v.time = v.time || captureTime;
         }
     }
-    const err = d && d._error; if (d) delete d._error; const hasValues = FIELDS[kind].some(k => d && d[k] != null && String(d[k]).trim() !== ''); const note = kind === 'geo' ? 'Address lookup uses phone GPS via OpenStreetMap (© OpenStreetMap contributors).' + (geoError ? ' ' + geoError : '') : (err ? 'Reading failed: ' + err : (!hasValues ? 'No values returned. Server replied: ' + JSON.stringify(d) + ' (open /api/ping to check the server version)' : (kind === 'cluster' && !validOdometer(v.km) ? 'The odometer was not read. Cancel and retake the photo.' : (kind === 'generator' && !validGeneratorHours(v.hours) ? 'The generator hour-meter reading was not read. Cancel and retake the photo.' : ''))));
+    const err = d && d._error;
+    if (d) delete d._error;
+    const hasValues = FIELDS[kind].some(k => d && d[k] != null && String(d[k]).trim() !== '');
+    const noOverlayText = err && err.startsWith('Image received but no values returned:');
+    const note = kind === 'geo'
+        ? (err && !noOverlayText
+            ? 'Image text reading failed: ' + err + '. Address details use phone GPS when available.'
+            : (!hasValues ? 'No overlay text was recognized; address details use phone GPS when available.' : '')) +
+          ' Address lookup uses OpenStreetMap (© OpenStreetMap contributors).' + (geoError ? ' ' + geoError : '')
+        : (err ? 'Reading failed: ' + err : (!hasValues ? 'No values returned. Server replied: ' + JSON.stringify(d) + ' (open /api/ping to check the server version)' : (kind === 'cluster' && !validOdometer(v.km) ? 'The odometer was not read. Cancel and retake the photo.' : (kind === 'generator' && !validGeneratorHours(v.hours) ? 'The generator hour-meter reading was not read. Cancel and retake the photo.' : '')));
     const o = await review(title, kind, v, URL.createObjectURL(b), note);
     return o && { o, th, image: b, capturedAt: capturedAt.toISOString() }
 }
