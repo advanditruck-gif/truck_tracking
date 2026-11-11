@@ -195,7 +195,7 @@ def _gemini_status_code(error):
     return int(match.group(1)) if match else None
 
 
-def _call_gemini_once(contents, generation_config):
+def _call_gemini_once(contents, generation_config, model_name=MODEL):
     api_key = _get_api_key()
     try:
         from google import genai
@@ -216,7 +216,7 @@ def _call_gemini_once(contents, generation_config):
             for part in contents
         ]
         response = client.models.generate_content(
-            model=MODEL,
+            model=model_name,
             contents=sdk_contents,
             config=types.GenerateContentConfig(**generation_config),
         )
@@ -227,10 +227,10 @@ def _call_gemini_once(contents, generation_config):
     try:
         import google.generativeai as genai
     except ImportError:
-        return _call_gemini_rest(MODEL, api_key, prompt, image_bytes)
+        return _call_gemini_rest(model_name, api_key, prompt, image_bytes)
 
     genai.configure(api_key=api_key)
-    g_model = genai.GenerativeModel(MODEL)
+    g_model = genai.GenerativeModel(model_name)
     response = g_model.generate_content(
         [
             {"mime_type": "image/jpeg", "data": image_bytes},
@@ -241,10 +241,10 @@ def _call_gemini_once(contents, generation_config):
     return response.text
 
 
-def call_gemini(contents, config):
+def call_gemini(contents, config, model_name=MODEL):
     for attempt in range(MAX_RETRIES + 1):
         try:
-            return _call_gemini_once(contents, config)
+            return _call_gemini_once(contents, config, model_name)
         except Exception as error:
             if _gemini_status_code(error) not in RETRYABLE_STATUS_CODES:
                 raise
@@ -298,54 +298,39 @@ def extract_gemini(kind, image_bytes):
     last_error = None
     for model_name in models_to_try:
         try:
-            raw_text = None
-
-            # 1. Try modern google-genai SDK
-            try:
-                from google import genai
-                from google.genai import types
-                client = genai.Client(api_key=api_key)
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=[
-                        types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
-                        prompt,
-                    ],
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json"
-                    )
-                )
-                raw_text = response.text
-            except ImportError:
-                pass
-
-            # 2. Try legacy google-generativeai SDK if google-genai is not installed
-            if raw_text is None:
-                try:
-                    import google.generativeai as genai
-                    genai.configure(api_key=api_key)
-                    g_model = genai.GenerativeModel(model_name)
-                    response = g_model.generate_content(
-                        [
-                            {"mime_type": "image/jpeg", "data": image_bytes},
-                            prompt,
-                        ],
-                        generation_config={"response_mime_type": "application/json"}
-                    )
-                    raw_text = response.text
-                except ImportError:
-                    pass
-
-            # 3. If neither SDK installed, use standard library urllib REST API
-            if raw_text is None:
-                raw_text = _call_gemini_rest(model_name, api_key, prompt, image_bytes)
+            contents = [
+                {"inline_data": {"mime_type": "image/jpeg", "data": image_bytes}},
+                {"text": prompt},
+            ]
+            raw_text = call_gemini(
+                contents,
+                {"response_mime_type": "application/json"},
+                model_name,
+            )
 
             data = _clean(_parse_model_json(raw_text))
             print("extract", kind, "using", model_name, "->", data)
             if all(v in (None, "") for v in data.values()):
+                if kind == "geo":
+                    return data
                 return {"_error": "Image received but no values returned: " + json.dumps(data)}
             return data
 
+        except GeminiUnavailableError as error:
+            last_error = error
+            print(f"Gemini model {model_name} unavailable after retries: {error}")
+        except Exception as error:
+            last_error = error
+            err_msg = str(error)
+            print(f"Gemini model {model_name} failed: {err_msg}")
+            if any(code in err_msg for code in ("404", "429", "503", "RESOURCE_EXHAUSTED", "UNAVAILABLE")) \
+                    or "not found" in err_msg.lower():
+                continue
+            break
+
+    if isinstance(last_error, GeminiUnavailableError):
+        raise last_error
+    return {"_error": f"{type(last_error).__name__}: {last_error}"[:300]}
 
 # Alias for backward compatibility
 extract_claude = extract_gemini
