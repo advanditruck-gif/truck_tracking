@@ -70,7 +70,7 @@ SCHEMAS = {
     "fuel": {
         "date": f(S, "Bill date as YYYY-MM-DD."),
         "time": f(S, "Bill time, 24-hour HH:MM."),
-        "receipt_no": f(S, "Receipt / voucher / invoice / bill number, only if printed on the bill; return null if no number is shown and never invent one."),
+        "receipt_no": f(S, "Copy a number only when it is explicitly labeled Receipt No, Bill No, Invoice No, Voucher No, or Transaction ID. BSN, hose ID, preset, vehicle number, and other pump readings are not receipt numbers. Return null if none of those labels appears; never infer or invent a number."),
         "product": f(S, "Fuel product, e.g. Diesel or Petrol."),
         "rate": f(N, "Price per litre."),
         "volume": f(N, "Litres dispensed."),
@@ -90,7 +90,7 @@ PROMPTS = {
     "geo": "Read only details that are actually visible in this image or its text overlay. Extract any visible date, "
            "time, address, and printed coordinates. Do not guess a street, town, district, or state from the scene; "
            "return null for details not visible.",
-    "fuel": "This is a fuel pump bill; the layout varies by pump. Read the values from the printed text.",
+    "fuel": "This is a fuel pump bill; the layout varies by pump. Read values from the printed text. Only use an explicitly labeled Receipt No, Bill No, Invoice No, Voucher No, or Transaction ID as receipt_no. Do not use BSN, hose ID, preset, vehicle number, or other pump readings as a receipt number; use null if no explicit receipt-number label is printed.",
 }
 
 # ---- Data retention (see retention.py) ----
