@@ -14,7 +14,7 @@ const P = {
     cluster: 'Read the vehicle instrument cluster. Prioritize the odometer value shown beside or above "ODO" (usually near the bottom of the display); ignore people, hands, reflections, and other dashboard values. Transcribe the odometer digits exactly as a number, without units or separators. Also read the displayed date and time if legible. Always return all three keys, using null only for a value that is genuinely unreadable. Return valid JSON only, in this shape: {"km": 7148, "date": "2026-10-28", "time": "20:00"}. Use null for unreadable values and 24-hour time.',
     generator: 'Read the cumulative generator hour-meter reading only, usually followed by H or an hours symbol (for example 209 H means 209 hours). Ignore voltage, frequency, RPM and model numbers. Return JSON only: {"hours": 209}. Use null if unreadable.',
     geo: 'GPS-stamped camera photo. Read the overlay text. Return JSON {"date":"YYYY-MM-DD","time":"HH:MM" 24h,"road":"street line","location":"locality line","district":"","state":"","gps":"lat,lng if visible else empty"}.',
-    fuel: 'Fuel pump bill, layout varies. Return JSON {"date":"YYYY-MM-DD","time":"HH:MM" 24h,"receipt_no":"receipt/voucher no, the unique id","product":"","rate":number,"volume":number,"amount":number,"vehicle_no":""}.'
+    fuel: 'Fuel pump bill, layout varies. Return JSON {"date":"YYYY-MM-DD","time":"HH:MM" 24h,"receipt_no":"receipt/voucher number if printed, otherwise null","product":"","rate":number,"volume":number,"amount":number,"vehicle_no":""}.'
 };
 async function extract(kind, blob) {
     try {
@@ -138,7 +138,7 @@ function shoot(title) {
         fb.onchange = async () => fb.files[0] && end(await shrink(fb.files[0]));
     })
 }
-const LBL = { km: 'Odometer (km)', hours: 'Generator hours', business_name: 'Business name', amount_collected: 'Amount collected (₹)', receipt_no: 'Receipt or voucher no.', vehicle_no: 'Vehicle no.', gps: 'GPS', rate: 'Rate (₹/L)', volume: 'Volume (L)', amount: 'Amount (₹)' }, NARROW = ['date', 'time', 'rate', 'volume', 'amount', 'district', 'state', 'product', 'vehicle_no'];
+const LBL = { km: 'Odometer (km)', hours: 'Generator hours', business_name: 'Business name', amount_collected: 'Amount collected (₹)', receipt_no: 'Receipt or voucher no. (if shown)', vehicle_no: 'Vehicle no.', gps: 'GPS', rate: 'Rate (₹/L)', volume: 'Volume (L)', amount: 'Amount (₹)' }, NARROW = ['date', 'time', 'rate', 'volume', 'amount', 'district', 'state', 'product', 'vehicle_no'];
 const validOdometer = value => /^\d+(?:\.\d+)?$/.test(String(value ?? '').replace(/,/g, '').trim());
 const validGeneratorHours = value => /^\d+(?:\.\d+)?$/.test(String(value ?? '').trim()) && Number(value) >= 0;
 async function review(title, kind, vals, th, note) {
@@ -555,40 +555,41 @@ function fuel() {
         const r = await snap('fuel', 'Upload fuel bill', {});
         if (!r) return;
         const rc = String(r.o.receipt_no || '').trim();
-        if (!rc) return alert('Receipt/voucher number is required.');
 
         // Normalize receipt for comparison (trimmed and case-insensitive)
         const norm = s => String(s || '').trim().toLowerCase();
 
-        // 1. Check current local run events (prevents saving duplicate between Petrol and Diesel)
-        const dupLocal = (S.ev || []).find(e => e.t === 'fuel' && norm(e.d && e.d.receipt_no) === norm(rc));
-        if (dupLocal) {
-            const existingType = (dupLocal.d && (dupLocal.d.fuel_for || dupLocal.d.product)) || 'fuel';
-            alert('⚠️ Duplicate Receipt Alert!\n\nReceipt #' + rc + ' has already been used for ' + existingType + '.\nYou cannot save the same receipt number for Petrol and Diesel.');
-            return;
-        }
+        if (rc) {
+            // 1. Check current local run events (prevents saving duplicate between Petrol and Diesel)
+            const dupLocal = (S.ev || []).find(e => e.t === 'fuel' && norm(e.d && e.d.receipt_no) === norm(rc));
+            if (dupLocal) {
+                const existingType = (dupLocal.d && (dupLocal.d.fuel_for || dupLocal.d.product)) || 'fuel';
+                alert('⚠️ Duplicate Receipt Alert!\n\nReceipt #' + rc + ' has already been used for ' + existingType + '.\nYou cannot save the same receipt number for Petrol and Diesel.');
+                return;
+            }
 
-        // 2. Check pending offline queue
-        const dupPending = (S.pending || []).find(e => e.t === 'fuel' && norm(e.d && e.d.receipt_no) === norm(rc));
-        if (dupPending) {
-            const existingType = (dupPending.d && (dupPending.d.fuel_for || dupPending.d.product)) || 'fuel';
-            alert('⚠️ Duplicate Receipt Alert!\n\nReceipt #' + rc + ' is already recorded in the queue for ' + existingType + '.\nYou cannot save the same receipt number for Petrol and Diesel.');
-            return;
-        }
+            // 2. Check pending offline queue
+            const dupPending = (S.pending || []).find(e => e.t === 'fuel' && norm(e.d && e.d.receipt_no) === norm(rc));
+            if (dupPending) {
+                const existingType = (dupPending.d && (dupPending.d.fuel_for || dupPending.d.product)) || 'fuel';
+                alert('⚠️ Duplicate Receipt Alert!\n\nReceipt #' + rc + ' is already recorded in the queue for ' + existingType + '.\nYou cannot save the same receipt number for Petrol and Diesel.');
+                return;
+            }
 
-        // 3. Check database records if online
-        if (navigator.onLine) {
-            try {
-                const res = await fetch('/api/check-receipt?' + new URLSearchParams({ receipt: rc }));
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data.exists) {
-                        alert('⚠️ Duplicate Receipt Alert!\n\nReceipt #' + rc + ' has already been recorded in the database for ' + (data.fuel_for || 'fuel') + '.\nYou cannot save the same receipt number for Petrol and Diesel.');
-                        return;
+            // 3. Check database records if online
+            if (navigator.onLine) {
+                try {
+                    const res = await fetch('/api/check-receipt?' + new URLSearchParams({ receipt: rc }));
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data.exists) {
+                            alert('⚠️ Duplicate Receipt Alert!\n\nReceipt #' + rc + ' has already been recorded in the database for ' + (data.fuel_for || 'fuel') + '.\nYou cannot save the same receipt number for Petrol and Diesel.');
+                            return;
+                        }
                     }
+                } catch (err) {
+                    console.warn('Receipt check error:', err);
                 }
-            } catch (err) {
-                console.warn('Receipt check error:', err);
             }
         }
 

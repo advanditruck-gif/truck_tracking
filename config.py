@@ -70,7 +70,7 @@ SCHEMAS = {
     "fuel": {
         "date": f(S, "Bill date as YYYY-MM-DD."),
         "time": f(S, "Bill time, 24-hour HH:MM."),
-        "receipt_no": f(S, "Receipt / voucher / invoice / bill number: the unique id printed on the bill."),
+        "receipt_no": f(S, "Receipt / voucher / invoice / bill number, only if printed on the bill; return null if no number is shown and never invent one."),
         "product": f(S, "Fuel product, e.g. Diesel or Petrol."),
         "rate": f(N, "Price per litre."),
         "volume": f(N, "Litres dispensed."),
