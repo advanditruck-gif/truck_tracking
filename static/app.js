@@ -594,7 +594,8 @@ function fuel() {
         }
 
         if (!r.o.product) r.o.product = type.split(' - ')[0];
-        r.o.receipt_no = rc;
+        if (rc) r.o.receipt_no = rc;
+        else delete r.o.receipt_no;
         r.o.fuel_for = type;
         r.o.preset = preset;
         r.o.flag = Number(r.o.amount) !== preset ? 'Amount differs from ₹' + preset : '';
