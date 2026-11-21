@@ -10,7 +10,7 @@ from uuid import uuid4
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
-from flask import Flask, abort, jsonify, make_response, redirect, render_template, request, send_from_directory, session, url_for
+from flask import Flask, abort, jsonify, make_response, redirect, render_template, request, send_file, send_from_directory, session, url_for
 import config, db
 import extractor
 import report as reportmod
@@ -389,6 +389,38 @@ def report_event_image(event_id):
     except Exception as error:
         app.logger.error("Could not create report image URL: %s", error)
         abort(502, description="Could not retrieve this image from Supabase Storage.")
+
+
+@app.get("/report/image/<int:event_id>/download")
+def report_event_image_download(event_id):
+    event = db.admin_event(event_id)
+    if not event or event["t"] != "other_expense" or not event["d"].get("image_path"):
+        abort(404)
+    try:
+        signed_url = supabase_storage.signed_image_url(
+            event["d"]["image_path"], expires_in=10 * 60
+        )
+        with urlopen(signed_url, timeout=30) as source:
+            image_bytes = source.read()
+            content_type = source.headers.get_content_type() or "application/octet-stream"
+
+        reason = str(event["d"].get("reason") or "other-expense").strip()
+        safe_reason = "".join(
+            character if character.isalnum() or character in ("-", "_") else "-"
+            for character in reason
+        ).strip("-")
+        safe_reason = safe_reason[:60] or "other-expense"
+        date_part = str(event["at"] or "")[:10].replace("-", "")
+        filename = f"{safe_reason}-{date_part or event_id}.jpg"
+        return send_file(
+            io.BytesIO(image_bytes),
+            mimetype=content_type,
+            as_attachment=True,
+            download_name=filename,
+        )
+    except Exception as error:
+        app.logger.error("Could not download report image: %s", error)
+        abort(502, description="Could not download this image.")
 
 
 @app.get("/api/ping")

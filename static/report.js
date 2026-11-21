@@ -175,6 +175,14 @@ function openImageViewer(url, title, trigger) {
     imageViewerPortrait = trigger.dataset.imageOrientation === 'portrait';
     imageZoom = 0.5;
     imageViewer.querySelector('.rep-image-viewer-title').textContent = title;
+    const downloadButton = imageViewer.querySelector('[data-image-download]');
+    if (trigger.dataset.imageDownload) {
+        downloadButton.hidden = false;
+        downloadButton.dataset.imageDownloadUrl = trigger.dataset.imageDownload;
+    } else {
+        downloadButton.hidden = true;
+        delete downloadButton.dataset.imageDownloadUrl;
+    }
     imageViewerImage.alt = title;
     imageViewerImage.onload = () => {
         fitImageViewer();
@@ -205,7 +213,11 @@ function setupImageViewer() {
         '<div class="rep-image-viewer-controls"><button type="button" data-image-zoom="-1" aria-label="Zoom out">−</button>' +
         '<span id="rep-image-zoom-level" aria-live="polite">100%</span>' +
         '<button type="button" data-image-zoom="1" aria-label="Zoom in">+</button>' +
-        '<button type="button" data-image-zoom-reset>Fit</button></div></div>';
+        '<button type="button" data-image-zoom-reset>Fit</button>' +
+        '<button type="button" data-image-download aria-label="Download image" title="Download" hidden>' +
+        '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" ' +
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+        '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg></button></div></div>';
     document.body.append(imageViewer);
     imageViewerImage = imageViewer.querySelector('.rep-image-viewer-image');
     imageViewerCanvas = imageViewer.querySelector('.rep-image-viewer-canvas');
@@ -222,6 +234,15 @@ function setupImageViewer() {
             imageZoom = 1;
             fitImageViewer();
             imageViewer.querySelector('.rep-image-viewer-viewport').scrollTo(0, 0);
+        } else {
+            const downloadButton = event.target.closest('[data-image-download]');
+            if (downloadButton && downloadButton.dataset.imageDownloadUrl) {
+                const downloadLink = document.createElement('a');
+                downloadLink.href = downloadButton.dataset.imageDownloadUrl;
+                document.body.append(downloadLink);
+                downloadLink.click();
+                downloadLink.remove();
+            }
         }
     });
     imageViewer.querySelector('.rep-image-viewer-viewport').addEventListener('wheel', event => {
@@ -480,9 +501,13 @@ function renderImages(records) {
             ? new Date(record.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
             : 'Time unavailable';
         const orientation = ['fuel', 'other_expense'].includes(record.type) ? 'portrait' : 'landscape';
+        const downloadAttribute = record.type === 'other_expense'
+            ? ' data-image-download="/report/image/' + encodeURIComponent(record.id) + '/download"'
+            : '';
         return '<button class="rep-image-card" type="button" data-image-url="' + imageUrl +
             '" data-image-title="' + esc(title) + '" data-image-orientation="' + orientation +
-            '" aria-label="View ' + esc(title) + '">' +
+            '"' + downloadAttribute +
+            ' aria-label="View ' + esc(title) + '">' +
             '<div class="rep-image-preview"><img src="' + imageUrl + '" alt="' + esc(title) + '" loading="lazy"></div>' +
             '<span><b>' + esc(title) + '</b><small>' + esc(fmtDate(recordDate(record))) + ' · ' +
             esc(time) + '</small></span></button>';
@@ -515,7 +540,10 @@ function renderRecords(records) {
               encodeURIComponent(record.id) + '?v=2" data-image-orientation="' +
               (['fuel', 'other_expense'].includes(record.type) ? 'portrait' : 'landscape') + '" data-image-title="' +
               esc(record.type === 'other_expense' ? (record.data.reason || 'Other expense bill') :
-                  labels[record.type] || 'Uploaded image') + '">Open image</button>'
+                  labels[record.type] || 'Uploaded image') + '"' +
+               (record.type === 'other_expense'
+                  ? ' data-image-download="/report/image/' + encodeURIComponent(record.id) + '/download"'
+                  : '') + '>Open image</button>'
             : '';
         const editButton = EDIT_ENABLED
             ? '<button class="rep-edit-button" type="button" data-edit-record="' + record.id +
