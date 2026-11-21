@@ -134,8 +134,8 @@ main.report-main{width:min(100% - 40px,1440px);padding-top:78px}
 }
 .rep-layout.all-records .rep-table-wrap::-webkit-scrollbar{width:10px;height:10px}
 .rep-layout.all-records .rep-table-wrap::-webkit-scrollbar-track{background:var(--raised);border-radius:999px}
-.rep-layout.all-records .rep-table-wrap::-webkit-scrollbar-thumb{background:var(--led-dim);border:2px solid var(--raised);border-radius:999px}
-.rep-layout.all-records .rep-table-wrap{scrollbar-width:thin;scrollbar-color:var(--led-dim) var(--raised)}
+.rep-layout.all-records .rep-table-wrap::-webkit-scrollbar-thumb{background:#9f9f9f;border:2px solid #2c2c2c;border-radius:999px}
+.rep-layout.all-records .rep-table-wrap{scrollbar-width:thin;scrollbar-color:#9f9f9f #2c2c2c}
 .rep-overview{z-index:2;flex:none;margin:0 -8px 12px;padding:0 8px 10px;background:transparent}
 .rep-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:0 0 22px;padding:2px 0}
 .rep-toolbar-heading{flex:1;min-width:0}
