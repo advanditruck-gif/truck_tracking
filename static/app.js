@@ -534,7 +534,7 @@ async function loc(t) {
         return false;
     }
     const r = await snap('geo', t || 'Upload current location image'); if (!r) return;
-    const ok = await add('location', r.o, r.th, r.image);
+    const ok = await add('location', r.o, r.th, r.image, r.capturedAt);
     if (ok) {
         S.run.due = Date.now() + 30 * 60000;
         S.run.notified = false;

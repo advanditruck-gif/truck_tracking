@@ -1,28 +1,27 @@
 """Automatic data clearing (retention rules).
 
-Rule 1 - BILLS (fuel bills: Petrol / Diesel, and Other Expense bills)
-    Everything recorded in a month is cleared on the BILL_CLEAR_DAY (default 10th)
-    of the NEXT month.  Example: a bill uploaded in November is cleared on 10 December.
+Rule 1 - FUEL BILLS (Petrol / Diesel)
+    Everything recorded in a month is cleared after BILL_CLEAR_DAY (default 10th)
+    of the NEXT month. Example: a November bill is cleared on 11 December.
     "Cleared" = the bill IMAGE is removed from Supabase Storage.
     The database record (receipt no, amount, litres, reason ...) is KEPT.
 
-Rule 2 - OTHER IMAGES (Odometer / Cluster, Generator, Location photos)
-    The image is deleted IMAGE_RETENTION_DAYS (default 7) days after upload.
-    Example: uploaded 7 Nov -> deleted 14 Nov.
-    Only the photo is removed; the text values (km, hours, address ...) stay in the
-    database so reports keep working.
+Rule 2 - LOCATION, ODOMETER, AND GENERATOR PHOTOS
+    The image is deleted IMAGE_RETENTION_DAYS (default 7) days after capture.
+    Only the photo is removed; the event data stays in the database.
 
 NO database record is ever deleted by this module - only images.
 
 Month / day boundaries use RETENTION_TZ (default Asia/Kolkata).
-The "month" and the "upload time" of a record are taken from its recorded time
-(the `at` column), NOT from the date printed on the bill.
+The "month" and capture time are taken from the event timestamp (`at` column),
+not from the date printed on a bill.
 
 Run it
     python retention.py --dry-run     # show what WOULD be removed
     python retention.py               # really remove
-or call  /api/cron/cleanup?key=YOUR_CRON_KEY  from a scheduler (see app.py).
-It is safe to run as often as you like (hourly or daily is fine).
+The app also runs this cleanup automatically every day at 2:00 a.m. in
+RETENTION_TZ. The protected /api/cron/cleanup endpoint remains available for
+manual or external runs.
 """
 import argparse
 import json
@@ -33,11 +32,8 @@ import db
 import supabase_storage
 
 # ---- Which event types belong to which rule (edit here) -------------------
-BILL_TYPES = ("fuel", "other_expense")                              # Petrol, Diesel, Other Expense
-IMAGE_TYPES = ("start_km", "stop_km", "generator_start", "generator_stop", "location")
-# start_km / stop_km  = Odometer (cluster) photos
-# generator_start/stop = Generator photos
-# location            = Location photos
+BILL_TYPES = ("fuel",)
+IMAGE_TYPES = ("location", "start_km", "stop_km", "generator_start", "generator_stop")
 
 
 def _tz():
@@ -54,10 +50,10 @@ def _parse(text):
 
 
 def bill_clear_time(recorded_at):
-    """Moment a bill recorded at `recorded_at` must be cleared: day N of the next month, 00:00."""
+    """Moment a bill must be cleared: midnight after BILL_CLEAR_DAY next month."""
     local = _parse(recorded_at).astimezone(_tz())
     year, month = (local.year + 1, 1) if local.month == 12 else (local.year, local.month + 1)
-    return datetime(year, month, config.BILL_CLEAR_DAY, 0, 0, tzinfo=_tz())
+    return datetime(year, month, config.BILL_CLEAR_DAY, tzinfo=_tz()) + timedelta(days=1)
 
 
 def image_delete_time(recorded_at):
@@ -80,7 +76,7 @@ def run_cleanup(dry_run=False, now=None):
         "bill_images_deleted": [], "other_images_deleted": [], "errors": [],
     }
 
-    # ---- Rule 1: bills -> delete only the IMAGE on the 10th of next month ----
+    # ---- Rule 1: bills -> delete only the IMAGE after the 10th of next month ----
     for ev in db.events_by_types(BILL_TYPES):
         data = ev["d"] or {}
         path = data.get("image_path")
@@ -98,7 +94,7 @@ def run_cleanup(dry_run=False, now=None):
         except Exception as error:
             summary["errors"].append({"id": ev["id"], "error": str(error)[:200]})
 
-    # ---- Rule 2: odo / generator / location images -> delete after 7 days ----
+    # ---- Rule 2: location / odometer / generator photos -> delete after 7 days ----
     for ev in db.events_by_types(IMAGE_TYPES):
         data = ev["d"] or {}
         path = data.get("image_path")

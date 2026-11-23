@@ -95,5 +95,5 @@ PROMPTS = {
 
 # ---- Data retention (see retention.py) ----
 RETENTION_TZ = os.getenv("RETENTION_TZ", "Asia/Kolkata")                  # month/day boundaries
-BILL_CLEAR_DAY = int(os.getenv("BILL_CLEAR_DAY", "10"))                   # bills cleared on this day of NEXT month
-IMAGE_RETENTION_DAYS = int(os.getenv("IMAGE_RETENTION_DAYS", "7"))        # odo/generator/location images kept this many days
+BILL_CLEAR_DAY = int(os.getenv("BILL_CLEAR_DAY", "10"))                   # bills cleared after this day of NEXT month
+IMAGE_RETENTION_DAYS = int(os.getenv("IMAGE_RETENTION_DAYS", "7"))        # location/odometer/generator images kept this many days

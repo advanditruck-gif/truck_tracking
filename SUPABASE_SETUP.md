@@ -29,6 +29,13 @@ Save the variables and deploy the latest repository commit. The app creates
 `public.events` if it does not already exist. Event details, including the
 private Storage object path for each new image, are stored in that table.
 
+The app automatically checks image retention every day at 2:00 a.m. in
+`RETENTION_TZ` (default `Asia/Kolkata`). It removes location, odometer, and
+generator photos seven days after capture, and fuel-bill photos after the 10th
+of the following month (from the 11th). The event records and their other data
+remain in the database. Keep one application process/worker running so the
+in-app scheduler stays active.
+
 The `SUPABASE_KEY` publishable key is not used by this server-side integration.
 Do not expose a secret key or `DATABASE_URL` in frontend code or commit either
 value to Git.

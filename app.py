@@ -748,5 +748,47 @@ def api_push_test():
     return jsonify({"phones": len(tokens), "delivered": n})
 
 
+def _run_scheduled_cleanup():
+    try:
+        summary = retention.run_cleanup()
+    except Exception:
+        app.logger.exception("Scheduled image cleanup failed")
+        return
+    deleted = len(summary["bill_images_deleted"]) + len(summary["other_images_deleted"])
+    app.logger.info(
+        "Scheduled image cleanup finished: %d image(s) deleted, %d error(s)",
+        deleted,
+        len(summary["errors"]),
+    )
+    for error in summary["errors"]:
+        app.logger.error("Image cleanup failed for event %s: %s", error["id"], error["error"])
+
+
+def _start_retention_scheduler():
+    from apscheduler.schedulers.background import BackgroundScheduler
+
+    scheduler = BackgroundScheduler(timezone=retention._tz())
+    scheduler.add_job(
+        _run_scheduled_cleanup,
+        trigger="cron",
+        hour=2,
+        minute=0,
+        id="image-retention-cleanup",
+        replace_existing=True,
+        coalesce=True,
+        max_instances=1,
+        misfire_grace_time=24 * 60 * 60,
+    )
+    scheduler.start()
+    app.logger.info("Image-retention cleanup scheduled daily at 2:00 a.m.")
+    return scheduler
+
+
+if __name__ != "__main__":
+    _retention_scheduler = _start_retention_scheduler()
+
+
 if __name__ == "__main__":
+    if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not app.debug:
+        _retention_scheduler = _start_retention_scheduler()
     app.run(host="0.0.0.0", port=config.PORT, ssl_context="adhoc" if config.USE_HTTPS else None)
