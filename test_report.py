@@ -3,8 +3,8 @@ import unittest
 from report import build_reports
 
 
-class OtherExpenseReportTests(unittest.TestCase):
-    def test_expenses_are_separate_and_do_not_reduce_balance(self):
+class FoodExpenseReportTests(unittest.TestCase):
+    def test_food_expense_is_added_and_deducted_from_balance(self):
         events = [
             {"id": 1, "run": "run-1", "t": "start_km", "at": "2026-11-02T08:00:00", "d": {"km": 100}},
             {"id": 2, "run": "run-1", "t": "visit", "at": "2026-11-02T09:00:00", "d": {"amount_collected": 500}},
@@ -16,7 +16,26 @@ class OtherExpenseReportTests(unittest.TestCase):
 
         self.assertEqual(report["other_expense_amount"], 25)
         self.assertEqual(report["other_expense_count"], 1)
-        self.assertEqual(report["balance_amount"], 400)
+        self.assertEqual(report["food_expense_amount"], 350)
+        self.assertEqual(report["balance_amount"], 50)
+
+    def test_food_expense_is_charged_once_for_runs_on_the_same_date(self):
+        events = [
+            {"id": 1, "run": "run-1", "t": "start_km", "at": "2026-11-02T08:00:00", "d": {"km": 100}},
+            {"id": 2, "run": "run-1", "t": "visit", "at": "2026-11-02T09:00:00", "d": {"amount_collected": 500}},
+            {"id": 3, "run": "run-2", "t": "start_km", "at": "2026-11-02T12:00:00", "d": {"km": 150}},
+            {"id": 4, "run": "run-2", "t": "visit", "at": "2026-11-02T13:00:00", "d": {"amount_collected": 200}},
+        ]
+
+        reports = build_reports(events)
+
+        self.assertEqual(len({report["date"] for report in reports}), 1)
+        self.assertEqual(sum(report["food_expense_amount"] for report in reports), 350)
+        self.assertEqual(sum(report["balance_amount"] for report in reports), 350)
+        self.assertEqual(reports[0]["run"], "run-2")
+        self.assertEqual(reports[0]["food_expense_amount"], 0)
+        self.assertEqual(reports[1]["run"], "run-1")
+        self.assertEqual(reports[1]["food_expense_amount"], 350)
 
 
 class GeneratorHoursReportTests(unittest.TestCase):

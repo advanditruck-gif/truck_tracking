@@ -7,6 +7,8 @@ when the driver taps Start). A run can still be open (no stop_km yet).
 from collections import defaultdict
 import math
 
+FOOD_EXPENSE_PER_DAY = 350
+
 
 def _num(v):
     try:
@@ -121,6 +123,7 @@ def build_reports(events):
             "fuel_count": len(fuels),
             "other_expense_amount": other_expense_amount,
             "other_expense_count": len(other_expenses),
+            "food_expense_amount": 0,
             "collected_amount": collected,
             "balance_amount": collected - (petrol_amount + diesel_amount),
             "areas_covered": areas,
@@ -130,4 +133,11 @@ def build_reports(events):
         })
 
     reports.reverse()  # most recently started run first
+    food_expense_dates = set()
+    for report in reversed(reports):
+        day = report["date"]
+        if day and day not in food_expense_dates:
+            report["food_expense_amount"] = FOOD_EXPENSE_PER_DAY
+            report["balance_amount"] -= FOOD_EXPENSE_PER_DAY
+            food_expense_dates.add(day)
     return reports
