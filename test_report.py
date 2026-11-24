@@ -37,6 +37,17 @@ class FoodExpenseReportTests(unittest.TestCase):
         self.assertEqual(reports[1]["run"], "run-1")
         self.assertEqual(reports[1]["food_expense_amount"], 350)
 
+    def test_excluded_run_is_omitted_from_reports(self):
+        events = [
+            {"id": 1, "run": "run-1", "t": "start_km", "at": "2026-11-02T08:00:00", "d": {"km": 100}},
+            {"id": 2, "run": "run-2", "t": "start_km", "at": "2026-11-02T12:00:00",
+             "d": {"km": 150, "exclude_from_report": True}},
+        ]
+
+        reports = build_reports(events)
+
+        self.assertEqual([report["run"] for report in reports], ["run-1"])
+
 
 class GeneratorHoursReportTests(unittest.TestCase):
     def test_generator_start_end_and_usage_are_reported(self):

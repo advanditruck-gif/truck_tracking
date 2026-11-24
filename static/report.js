@@ -428,8 +428,12 @@ async function load() {
         const response = await fetch('/api/report/records');
         if (!response.ok) throw new Error('Server returned ' + response.status);
         const data = await response.json();
-        REPORTS = data.reports || [];
         RECORDS = data.records || [];
+        const excludedRuns = new Set(RECORDS
+            .filter(record => record.type === 'start_km' && record.data.exclude_from_report === true)
+            .map(record => String(record.run ?? '')));
+        REPORTS = (data.reports || []).filter(report =>
+            !excludedRuns.has(String(report.run ?? '')));
         draw();
     } catch (error) {
         app.innerHTML = '<p class="rep-empty">Could not load records: ' + esc(error.message) + '</p>';

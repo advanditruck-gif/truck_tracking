@@ -58,6 +58,8 @@ def build_reports(events):
     for rid in order:
         evs = runs[rid]
         start = next((e for e in evs if e["t"] == "start_km"), None)
+        if start and start["d"].get("exclude_from_report") is True:
+            continue
         stop = next((e for e in evs if e["t"] == "stop_km"), None)
         generator_start = next((e for e in evs if e["t"] == "generator_start"), None)
         generator_stop = next((e for e in evs if e["t"] == "generator_stop"), None)
