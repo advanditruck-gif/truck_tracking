@@ -562,6 +562,30 @@ function formatValue(value) {
 }
 
 function renderRecords(records) {
+    if (selectedFolder === 'visit') {
+        const rows = records.map(record => {
+            const areas = Array.isArray(record.data.area)
+                ? record.data.area.join(', ')
+                : record.data.area || '—';
+            const editButton = EDIT_ENABLED
+                ? '<button class="rep-edit-button" type="button" data-edit-record="' + record.id +
+                  '" aria-label="Edit business visit" title="Edit record">' + pencilIcon() + '</button>'
+                : '';
+            return '<tr><td>' + esc(fmtDate(recordDate(record))) + '</td>' +
+                '<td class="rep-visit-business">' + esc(businessName(record) || '—') + editButton + '</td>' +
+                '<td class="num">' + esc(inrShare(record.data.amount_collected)) + '</td>' +
+                '<td class="areas">' + esc(areas) + '</td></tr>';
+        }).join('');
+        return '<section class="rep-section"><div class="rep-section-head"><h2>Business visits</h2>' +
+            '<span class="rep-section-count">' + records.length + '</span></div>' +
+            (rows ? '<div class="rep-table-wrap rep-visits-table-wrap"><table class="rep">' +
+                '<thead><tr><th scope="col">Date</th><th scope="col">Business name</th>' +
+                '<th scope="col">Amount collected</th><th scope="col">Area</th></tr></thead>' +
+                '<tbody>' + rows + '</tbody></table></div>' :
+                '<div class="rep-empty">No records in this folder for the selected date.</div>') +
+            '</section>';
+    }
+
     const cards = records.map(record => {
         const time = record.at && !isNaN(new Date(record.at))
             ? new Date(record.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
@@ -808,11 +832,14 @@ function draw() {
     const imageCount = showImages ? records.filter(record => record.has_image).length : null;
     const showRecordDetails = !['all', 'odo', 'generator'].includes(selectedFolder);
     const isAllRecords = selectedFolder === 'all';
+    const isBusinessVisits = selectedFolder === 'visit';
     document.querySelector('main.report-main').classList.toggle('report-all-records', isAllRecords);
+    document.querySelector('main.report-main').classList.toggle('report-business-visits', isBusinessVisits);
     const overview = isAllRecords
         ? '<div class="rep-overview">' + renderToolbar() + renderRunKpis() + '</div>'
         : renderToolbar(imageCount);
-    $('#app').innerHTML = '<div class="rep-layout' + (isAllRecords ? ' all-records' : '') + '">' +
+    $('#app').innerHTML = '<div class="rep-layout' +
+        (isAllRecords ? ' all-records' : isBusinessVisits ? ' business-visits' : '') + '">' +
         renderSidebar(datedRecords) +
         '<section class="rep-content">' + overview +
         (showImages ? renderImages(records) : '') +

@@ -102,8 +102,10 @@ table.rep td.areas{white-space:normal;min-width:220px;max-width:340px}
 /* ---- folder browser and database records ---- */
 main.report-main{width:min(100% - 40px,1440px);padding-top:78px}
 .report-main.report-all-records{height:100dvh;padding-bottom:0;overflow:hidden}
+.report-main.report-business-visits{height:100dvh;padding-bottom:0;overflow:hidden}
 .report-app{min-width:0}
 .report-main.report-all-records .report-app{height:100%}
+.report-main.report-business-visits .report-app{height:100%}
 .report-main>.top{position:fixed;top:0;left:50%;z-index:30;display:grid;grid-template-columns:248px minmax(0,1fr) auto;align-items:center;width:min(100% - 40px,1440px);height:58px;margin:0;padding:8px 0;transform:translateX(-50%);background:var(--bg)}
 .report-main>.top>.brand{grid-column:1;grid-row:1}
 .report-main>.top>.rep-toolbar-heading{grid-column:2;grid-row:1;margin:0 12px 0 0}
@@ -111,6 +113,7 @@ main.report-main{width:min(100% - 40px,1440px);padding-top:78px}
 .rep-folder-toggle{display:none}
 .rep-layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:28px;align-items:start}
 .rep-layout.all-records{height:100%;grid-template-rows:minmax(0,1fr);align-items:stretch}
+.rep-layout.business-visits{height:100%;grid-template-rows:minmax(0,1fr);align-items:stretch}
 .rep-sidebar{position:sticky;top:18px;align-self:start;display:grid;align-content:start;gap:4px;padding:12px;border:1px solid var(--line);border-radius:18px;background:rgba(17,22,33,.88)}
 .rep-sidebar-title{padding:7px 10px 10px;color:var(--mu);font:600 10px/1.2 Arial,sans-serif;letter-spacing:.14em}
 .rep-folder{display:flex;align-items:center;gap:10px;width:100%;min-height:40px;margin:0;padding:0 10px;border:1px solid transparent;border-radius:10px;background:transparent;color:var(--mu);text-align:left;font:500 13px/1.2 Arial,sans-serif}
@@ -125,6 +128,7 @@ main.report-main{width:min(100% - 40px,1440px);padding-top:78px}
 .rep-back-link:hover{color:var(--ink)}
 .rep-content{min-width:0;min-height:0}
 .rep-layout.all-records .rep-content{display:flex;flex-direction:column;overflow:hidden}
+.rep-layout.business-visits .rep-content{display:flex;flex-direction:column;overflow:hidden}
 .rep-layout.all-records .rep-table-wrap{
   min-height:0;
   overflow-y:auto;
@@ -136,6 +140,9 @@ main.report-main{width:min(100% - 40px,1440px);padding-top:78px}
 .rep-layout.all-records .rep-table-wrap::-webkit-scrollbar-track{background:var(--raised);border-radius:999px}
 .rep-layout.all-records .rep-table-wrap::-webkit-scrollbar-thumb{background:#9f9f9f;border:2px solid #2c2c2c;border-radius:999px}
 .rep-layout.all-records .rep-table-wrap{scrollbar-width:thin;scrollbar-color:#9f9f9f #2c2c2c}
+.rep-layout.business-visits .rep-content>.rep-section{display:flex;flex:1;flex-direction:column;min-height:0;margin:4px 0 0}
+.rep-layout.business-visits .rep-section-head{flex:none}
+.rep-layout.business-visits .rep-visits-table-wrap{flex:1;min-height:0;max-height:none;overscroll-behavior:contain;scrollbar-gutter:stable}
 .rep-overview{z-index:2;flex:none;margin:0 -8px 12px;padding:0 8px 10px;background:transparent}
 .rep-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:0 0 22px;padding:2px 0}
 .rep-toolbar-heading{flex:1;min-width:0}
@@ -197,6 +204,13 @@ main.report-main{width:min(100% - 40px,1440px);padding-top:78px}
 .rep-section-count{display:inline-grid;place-items:center;min-width:23px;height:23px;padding:0 6px;border-radius:99px;background:var(--raised);color:var(--mu);font:600 11px Arial,sans-serif}
 .rep-image-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
 .rep-record-list{display:grid;gap:10px}
+.rep-visits-table-wrap{display:block;max-height:60vh;overflow:auto;scrollbar-color:var(--mu) var(--raised);scrollbar-width:thin}
+.rep-visits-table-wrap::-webkit-scrollbar{width:10px;height:10px}
+.rep-visits-table-wrap::-webkit-scrollbar-track{background:var(--raised);border-radius:999px}
+.rep-visits-table-wrap::-webkit-scrollbar-thumb{background:var(--mu);border:2px solid var(--raised);border-radius:999px}
+.rep-visits-table-wrap table.rep{min-width:620px}
+.rep-visits-table-wrap .rep-visit-business{white-space:nowrap}
+.rep-visits-table-wrap .rep-edit-button{margin-left:10px;vertical-align:middle}
 .rep-record{padding:15px 17px;border:1px solid var(--line);border-radius:14px;background:var(--surface)}
 .rep-record>header{display:flex;justify-content:space-between;gap:12px;margin-bottom:10px}
 .rep-record-actions{display:flex;align-items:center;gap:10px}
