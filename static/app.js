@@ -141,9 +141,13 @@ function shoot(title) {
 const LBL = { km: 'Odometer (km)', hours: 'Generator hours', business_name: 'Business name', amount_collected: 'Amount collected (₹)', receipt_no: 'Receipt or voucher no. (if shown)', vehicle_no: 'Vehicle no.', gps: 'GPS', rate: 'Rate (₹/L)', volume: 'Volume (L)', amount: 'Amount (₹)' }, NARROW = ['date', 'time', 'rate', 'volume', 'amount', 'district', 'state', 'product', 'vehicle_no'];
 const validOdometer = value => /^\d+(?:\.\d+)?$/.test(String(value ?? '').replace(/,/g, '').trim());
 const validGeneratorHours = value => /^\d+(?:\.\d+)?$/.test(String(value ?? '').trim()) && Number(value) >= 0;
+const GENERATOR_HOUR_ROUNDING_TOLERANCE = 1;
 async function review(title, kind, vals, th, note) {
     if (kind === 'visit') return reviewVisit(vals);
-    const m = modal('<h3>' + title + '</h3><p class="mu sub">Check the detected values, then save. Cancel to retake the photo.</p>' + (th ? '<img class="th" src="' + th + '" alt="">' : '') + (note ? '<p class="note' + (/failed|No values|Nothing|not read/i.test(note) ? ' err' : '') + '">' + esc(note) + '</p>' : '') + '<div id="fl"></div><div class="row"><button class="g" id="x">Cancel</button><button id="ok">Save</button></div>', 'md-review');
+    const instruction = kind === 'generator'
+        ? 'Compare every digit with the meter photo. Correct the reading if needed, then save; cancel to retake.'
+        : 'Check the detected values, then save. Cancel to retake the photo.';
+    const m = modal('<h3>' + title + '</h3><p class="mu sub">' + instruction + '</p>' + (th ? '<img class="th" src="' + th + '" alt="">' : '') + (note ? '<p class="note' + (/failed|No values|Nothing|not read/i.test(note) ? ' err' : '') + '">' + esc(note) + '</p>' : '') + '<div id="fl"></div><div class="row"><button class="g" id="x">Cancel</button><button id="ok">Save</button></div>', 'md-review');
     const ins = {};
     const save = m.querySelector('#ok');
 
@@ -490,6 +494,20 @@ async function start() {
 async function captureGenerator(eventType, title) {
     const reading = await snap('generator', title);
     if (!reading) return false;
+    if (eventType === 'generator_stop') {
+        const start = initialRunSetup().events.find(event => event.t === 'generator_start');
+        if (start) {
+            const startHours = Number(start.d.hours), stopHours = Number(reading.o.hours);
+            const elapsedMs = Date.parse(reading.capturedAt) - Date.parse(start.at);
+            if (Number.isFinite(startHours) && Number.isFinite(stopHours) && Number.isFinite(elapsedMs)) {
+                const elapsedHours = Math.max(0, elapsedMs / 3600000);
+                if (stopHours < startHours || stopHours - startHours > elapsedHours + GENERATOR_HOUR_ROUNDING_TOLERANCE) {
+                    alert('Generator stop reading does not match the start reading and elapsed time. Please correct it or retake the meter photo; the reading was not saved.');
+                    return false;
+                }
+            }
+        }
+    }
     return add(eventType, reading.o, reading.th, reading.image, reading.capturedAt);
 }
 function initialRunSetup() {
